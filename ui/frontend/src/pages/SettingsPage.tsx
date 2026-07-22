@@ -1,0 +1,283 @@
+import { DeleteOutlined, ExperimentOutlined, FolderOpenOutlined, GlobalOutlined, KeyOutlined, SafetyCertificateOutlined, SaveOutlined, SettingOutlined } from '@ant-design/icons';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Alert, Button, Card, Form, Input, InputNumber, Modal, Radio, Select, Space, Switch, Tabs, Tag, Typography, message } from 'antd';
+import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { api } from '../api/client';
+import type { Language, SystemSettings, ThemeMode, User } from '../api/types';
+import { usePreferences } from '../app-context';
+import { AsyncState } from '../components/AsyncState';
+import { PageIntro } from '../components/PageIntro';
+
+export function SettingsPage() {
+  const { t } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const { language, setLanguage, theme, setTheme } = usePreferences();
+  const queryClient = useQueryClient();
+  const [generalForm] = Form.useForm<SystemSettings>();
+  const [environmentForm] = Form.useForm<SystemSettings>();
+  const [experimentalForm] = Form.useForm<SystemSettings>();
+  const [preferenceForm] = Form.useForm<Partial<User>>();
+  const me = useQuery({ queryKey: ['me'], queryFn: api.auth.me });
+  const isAdmin = me.data?.role === 'administrator';
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings.get, enabled: isAdmin });
+  const wandbStatus = useQuery({
+    queryKey: ['settings', 'wandb'],
+    queryFn: api.settings.wandb.status,
+    enabled: isAdmin,
+  });
+  const [wandbApiKey, setWandbApiKey] = useState('');
+  const [wandbSaving, setWandbSaving] = useState(false);
+  const [wandbDeleting, setWandbDeleting] = useState(false);
+  const selectedMode = Form.useWatch('mode', generalForm);
+
+  useEffect(() => {
+    if (settings.data) {
+      generalForm.setFieldsValue(settings.data);
+      environmentForm.setFieldsValue(settings.data);
+      experimentalForm.setFieldsValue(settings.data);
+    }
+  }, [environmentForm, experimentalForm, generalForm, settings.data]);
+  useEffect(() => {
+    if (me.data) preferenceForm.setFieldsValue({ locale: me.data.locale ?? language, theme: me.data.theme ?? theme, experimental_enabled: me.data.experimental_enabled });
+  }, [language, me.data, preferenceForm, theme]);
+
+  const updateSystem = useMutation({
+    mutationFn: api.settings.update,
+    onSuccess: async (_, variables) => {
+      message.success(t('settings.saved'));
+      if (variables.mode && variables.mode !== me.data?.deployment_mode) {
+        queryClient.clear();
+        navigate(variables.mode === 'laboratory' ? '/login' : '/', { replace: true });
+        return;
+      }
+      await queryClient.invalidateQueries({ queryKey: ['settings'] });
+    },
+    onError: (error) => message.error(error.message),
+  });
+  const updatePreferences = useMutation({
+    mutationFn: api.settings.updatePreferences,
+    onSuccess: async (user) => {
+      if (user.locale) setLanguage(user.locale);
+      if (user.theme) setTheme(user.theme);
+      message.success(t('settings.saved'));
+      await queryClient.invalidateQueries({ queryKey: ['me'] });
+    },
+    onError: (error) => message.error(error.message),
+  });
+  const activeTab = searchParams.get('tab') ?? 'general';
+
+  const savePreferences = async () => {
+    const values = await preferenceForm.validateFields();
+    const currentlyEnabled = Boolean(me.data?.experimental_enabled);
+    if (!currentlyEnabled && values.experimental_enabled) {
+      Modal.confirm({
+        title: t('builder.experimental'),
+        content: t('builder.experimentalRisk'),
+        okButtonProps: { danger: true },
+        onOk: () => updatePreferences.mutate(values),
+      });
+    } else updatePreferences.mutate(values);
+  };
+
+  const saveWandbApiKey = async () => {
+    const apiKey = wandbApiKey.trim();
+    if (apiKey.length < 8 || /\s/.test(apiKey)) {
+      message.error(t('settings.wandbApiKeyInvalid'));
+      return;
+    }
+    setWandbSaving(true);
+    try {
+      const status = await api.settings.wandb.setApiKey(apiKey);
+      queryClient.setQueryData(['settings', 'wandb'], status);
+      setWandbApiKey('');
+      message.success(t(wandbStatus.data?.configured ? 'settings.wandbApiKeyReplaced' : 'settings.wandbApiKeySaved'));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setWandbSaving(false);
+    }
+  };
+
+  const confirmDeleteWandbApiKey = () => {
+    Modal.confirm({
+      title: t('settings.wandbDeleteTitle'),
+      content: t('settings.wandbDeleteDescription'),
+      okText: t('common.delete'),
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        setWandbDeleting(true);
+        try {
+          const status = await api.settings.wandb.deleteApiKey();
+          queryClient.setQueryData(['settings', 'wandb'], status);
+          setWandbApiKey('');
+          message.success(t('settings.wandbApiKeyDeleted'));
+        } catch (error) {
+          message.error(error instanceof Error ? error.message : String(error));
+          throw error;
+        } finally {
+          setWandbDeleting(false);
+        }
+      },
+    });
+  };
+
+  return (
+    <div className="page settings-page">
+      <PageIntro title={t('settings.title')} subtitle={t('settings.subtitle')} />
+      <AsyncState loading={me.isLoading || (isAdmin && settings.isLoading)} error={(isAdmin ? settings.error : undefined) ?? me.error} onRetry={() => { if (isAdmin) void settings.refetch(); void me.refetch(); }}>
+        <Card>
+          <Tabs
+            tabPosition="left"
+            activeKey={activeTab}
+            onChange={(value) => setSearchParams({ tab: value })}
+            items={[
+              {
+                key: 'general', label: <Space><SettingOutlined />{t('settings.general')}</Space>,
+                children: (
+                  <div className="settings-panel">
+                    <Typography.Title level={4}>{t('settings.general')}</Typography.Title>
+                    <Form<SystemSettings> form={generalForm} layout="vertical" disabled={!isAdmin}>
+                      <Form.Item name="mode" label={t('settings.mode')}>
+                        <Radio.Group className="mode-picker" optionType="button">
+                          <Radio.Button value="personal"><b>{t('settings.personal')}</b><small>{t('settings.personalDesc')}</small></Radio.Button>
+                          <Radio.Button value="laboratory"><b>{t('settings.laboratory')}</b><small>{t('settings.laboratoryDesc')}</small></Radio.Button>
+                        </Radio.Group>
+                      </Form.Item>
+                      {selectedMode === 'laboratory' && settings.data?.mode === 'personal' ? (
+                        <Form.Item name="admin_password" label={t('setup.password')} rules={[{ required: true, min: 8 }]}><Input.Password autoComplete="new-password" /></Form.Item>
+                      ) : null}
+                      <Form.Item name="secure_cookies" label={t('settings.secureCookies')} valuePropName="checked" extra={settings.data?.secure_cookies_locked ? t('settings.secureCookiesLocked') : t('settings.secureCookiesHint')}>
+                        <Switch disabled={settings.data?.secure_cookies_locked} />
+                      </Form.Item>
+                      {!isAdmin ? <Alert type="info" showIcon message={t('settings.adminRequired')} /> : null}
+                      {isAdmin ? <Button type="primary" icon={<SaveOutlined />} loading={updateSystem.isPending} onClick={() => void generalForm.validateFields().then((values) => updateSystem.mutate(values))}>{t('common.save')}</Button> : null}
+                    </Form>
+                  </div>
+                ),
+              },
+              {
+                key: 'environment', label: <Space><FolderOpenOutlined />{t('settings.environment')}</Space>,
+                children: (
+                  <div className="settings-panel">
+                    <Typography.Title level={4}>{t('settings.environment')}</Typography.Title>
+                    <Form<SystemSettings> form={environmentForm} layout="vertical" disabled={!isAdmin}>
+                      <Form.Item name="results_roots" label={t('settings.resultsRoots')} extra={t('settings.resultsRootsHint')} rules={[{ required: true, type: 'array', min: 1 }]}><Select mode="tags" tokenSeparators={[',']} placeholder="results/" /></Form.Item>
+                      <Form.Item name="dataset_roots" label={t('settings.datasetRoots')} extra={t('settings.datasetRootsHint')}><Select mode="tags" tokenSeparators={[',']} placeholder="data/" /></Form.Item>
+                      <Form.Item name="managed_dataset_root" label={t('settings.managedDatasetRoot')}><Input placeholder=".alphabrain-ui/datasets" /></Form.Item>
+                      <Form.Item name="pretrained_root" label={t('settings.pretrainedRoot')}><Input placeholder="data/pretrained_models" /></Form.Item>
+                      <Form.Item name="cpu_utility_concurrency" label={t('settings.utilityConcurrency')}><InputNumber min={1} max={16} className="full-width" /></Form.Item>
+                      <Form.Item name="model_server_python" label={t('settings.modelServerPython')} extra={t('settings.modelServerPythonHint')}><Input placeholder="/path/to/python" /></Form.Item>
+                      <div className="form-grid-2">
+                        <Form.Item name="low_disk_percent" label={t('settings.diskThreshold')}><InputNumber min={1} max={99} className="full-width" /></Form.Item>
+                        <Form.Item name="low_disk_gib" label={t('settings.diskThresholdGib')}><InputNumber min={0} className="full-width" /></Form.Item>
+                      </div>
+                      <Typography.Title level={5}>{t('settings.modelDatasetPaths')}</Typography.Title>
+                      <Form.Item name={['environment', 'PRETRAINED_MODELS_DIR']} label="PRETRAINED_MODELS_DIR"><Input placeholder="/path/to/pretrained_models" /></Form.Item>
+                      <Form.Item name={['environment', 'LIBERO_DATA_ROOT']} label="LIBERO_DATA_ROOT"><Input placeholder="/path/to/libero" /></Form.Item>
+                      <Form.Item name={['environment', 'LEROBOT_LIBERO_DATA_DIR']} label="LEROBOT_LIBERO_DATA_DIR"><Input placeholder="/path/to/lerobot/libero" /></Form.Item>
+                      <Form.Item name={['environment', 'LIBERO_HOME']} label="LIBERO_HOME"><Input placeholder="/path/to/LIBERO" /></Form.Item>
+                      <Form.Item name={['environment', 'ROBOCASA_TABLETOP_DATA_ROOT']} label="ROBOCASA_TABLETOP_DATA_ROOT"><Input placeholder="/path/to/robocasa" /></Form.Item>
+                      <Form.Item name={['environment', 'ROBOCASA365_DATA_ROOT']} label="ROBOCASA365_DATA_ROOT"><Input placeholder="/path/to/robocasa365" /></Form.Item>
+                      <Typography.Title level={5}>{t('settings.evaluationEnvironments')}</Typography.Title>
+                      <Typography.Paragraph type="secondary">{t('settings.evaluationEnvironmentsHint')}</Typography.Paragraph>
+                      <Form.Item name={['environment', 'LIBERO_PYTHON']} label="LIBERO_PYTHON"><Input placeholder="/path/to/libero-env/bin/python" /></Form.Item>
+                      <Form.Item name={['environment', 'LIBERO_PLUS_HOME']} label="LIBERO_PLUS_HOME"><Input placeholder="/path/to/LIBERO-plus" /></Form.Item>
+                      <Form.Item name={['environment', 'LIBERO_PLUS_PYTHON']} label="LIBERO_PLUS_PYTHON"><Input placeholder="/path/to/libero-plus-env/bin/python" /></Form.Item>
+                      <Form.Item name={['environment', 'ROBOCASA365_PYTHON']} label="ROBOCASA365_PYTHON"><Input placeholder="/path/to/robocasa365-env/bin/python" /></Form.Item>
+                      <Form.Item name={['environment', 'ROBOCASA_TABLETOP_PYTHON']} label="ROBOCASA_TABLETOP_PYTHON"><Input placeholder="/path/to/robocasa-tabletop-env/bin/python" /></Form.Item>
+                      <Form.Item name={['environment', 'HF_HOME']} label="HF_HOME"><Input placeholder="~/.cache/huggingface" /></Form.Item>
+                      <Form.Item name={['environment', 'WANDB_BASE_URL']} label="WANDB_BASE_URL"><Input placeholder="https://api.wandb.ai" /></Form.Item>
+                      <Form.Item name={['environment', 'WANDB_MODE']} label="WANDB_MODE"><Input placeholder="online / offline / disabled" /></Form.Item>
+                      {isAdmin ? <Button type="primary" icon={<SaveOutlined />} loading={updateSystem.isPending} onClick={() => void environmentForm.validateFields().then((values) => updateSystem.mutate(values))}>{t('common.save')}</Button> : null}
+                    </Form>
+                    <Card
+                      size="small"
+                      className="wandb-secret-card"
+                      title={<Space><KeyOutlined />{t('settings.wandbApiKeyTitle')}</Space>}
+                      extra={isAdmin && !wandbStatus.isLoading ? (
+                        <Tag color={wandbStatus.data?.configured ? 'green' : 'default'}>
+                          {t(wandbStatus.data?.configured ? 'settings.wandbConfigured' : 'settings.wandbNotConfigured')}
+                        </Tag>
+                      ) : null}
+                    >
+                      <Typography.Paragraph type="secondary">{t('settings.wandbApiKeyDescription')}</Typography.Paragraph>
+                      {!isAdmin ? <Alert type="info" showIcon message={t('settings.adminRequired')} /> : null}
+                      {isAdmin && wandbStatus.error ? (
+                        <Alert
+                          type="error"
+                          showIcon
+                          message={t('settings.wandbStatusFailed')}
+                          description={wandbStatus.error.message}
+                          action={<Button size="small" onClick={() => void wandbStatus.refetch()}>{t('common.retry')}</Button>}
+                        />
+                      ) : null}
+                      {isAdmin ? (
+                        <>
+                          <Input.Password
+                            value={wandbApiKey}
+                            onChange={(event) => setWandbApiKey(event.target.value)}
+                            autoComplete="new-password"
+                            visibilityToggle
+                            placeholder={wandbStatus.data?.configured ? t('settings.wandbReplacePlaceholder') : t('settings.wandbApiKeyPlaceholder')}
+                            disabled={wandbStatus.isLoading || wandbSaving || wandbDeleting}
+                            onPressEnter={() => void saveWandbApiKey()}
+                          />
+                          <Space wrap className="wandb-secret-actions">
+                            <Button
+                              type="primary"
+                              icon={<SaveOutlined />}
+                              loading={wandbSaving}
+                              disabled={wandbApiKey.trim().length < 8 || wandbDeleting}
+                              onClick={() => void saveWandbApiKey()}
+                            >
+                              {t(wandbStatus.data?.configured ? 'settings.wandbReplaceApiKey' : 'settings.wandbSaveApiKey')}
+                            </Button>
+                            {wandbStatus.data?.configured ? (
+                              <Button danger icon={<DeleteOutlined />} loading={wandbDeleting} disabled={wandbSaving} onClick={confirmDeleteWandbApiKey}>
+                                {t('settings.wandbDeleteApiKey')}
+                              </Button>
+                            ) : null}
+                          </Space>
+                        </>
+                      ) : null}
+                    </Card>
+                  </div>
+                ),
+              },
+              {
+                key: 'experimental', label: <Space><ExperimentOutlined />{t('settings.experimental')}</Space>,
+                children: (
+                  <div className="settings-panel">
+                    <Typography.Title level={4}>{t('settings.experimental')}</Typography.Title>
+                    <Alert type="warning" showIcon message={t('settings.allowExperimentalDesc')} description={t('builder.experimentalRisk')} />
+                    <Form<SystemSettings> form={experimentalForm} layout="vertical" disabled={!isAdmin}>
+                      <Form.Item name="experimental_allowed" label={t('settings.allowExperimental')} valuePropName="checked"><Switch /></Form.Item>
+                      {isAdmin ? <Button type="primary" icon={<SafetyCertificateOutlined />} loading={updateSystem.isPending} onClick={() => void experimentalForm.validateFields().then((values) => updateSystem.mutate(values))}>{t('common.save')}</Button> : null}
+                    </Form>
+                  </div>
+                ),
+              },
+              {
+                key: 'preferences', label: <Space><GlobalOutlined />{t('settings.preferences')}</Space>,
+                children: (
+                  <div className="settings-panel">
+                    <Typography.Title level={4}>{t('settings.preferences')}</Typography.Title>
+                    <Form<Partial<User>> form={preferenceForm} layout="vertical">
+                      <Form.Item name="locale" label={t('common.language')}><Select options={[{ label: '简体中文', value: 'zh-CN' satisfies Language }, { label: 'English', value: 'en-US' satisfies Language }]} /></Form.Item>
+                      <Form.Item name="theme" label={t('common.theme')}><Radio.Group options={[{ label: t('common.light'), value: 'light' satisfies ThemeMode }, { label: t('common.dark'), value: 'dark' satisfies ThemeMode }]} /></Form.Item>
+                      <Form.Item name="experimental_enabled" label={t('settings.userExperimental')} valuePropName="checked"><Switch disabled={!(settings.data?.experimental_allowed ?? me.data?.experimental_available)} /></Form.Item>
+                      <Button type="primary" icon={<SaveOutlined />} loading={updatePreferences.isPending} onClick={() => void savePreferences()}>{t('common.save')}</Button>
+                    </Form>
+                  </div>
+                ),
+              },
+            ]}
+          />
+        </Card>
+      </AsyncState>
+    </div>
+  );
+}
