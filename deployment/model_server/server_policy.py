@@ -4,6 +4,7 @@
 
 
 import argparse
+import importlib.util
 import logging
 import socket
 
@@ -21,8 +22,17 @@ def main(args) -> None:
 
     from AlphaBrain.model.framework.base_framework import BaseFramework
 
+    attention_backend = args.attention_backend
+    if attention_backend == "auto":
+        attention_backend = None
+        if importlib.util.find_spec("flash_attn") is None:
+            attention_backend = "sdpa"
+            logging.info("flash-attn is unavailable; using SDPA attention")
+
     vla = BaseFramework.from_pretrained(  # TODO should auto detect framework from model path
         args.ckpt_path,
+        base_vlm_path=args.base_vlm_path,
+        attention_backend=attention_backend,
     )
 
     if args.use_bf16:
@@ -54,6 +64,12 @@ def build_argparser():
     parser.add_argument("--host", type=str, default="0.0.0.0", help="Address to bind (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=10093)
     parser.add_argument("--use_bf16", action="store_true")
+    parser.add_argument("--base-vlm-path", default=None, help="Optional absolute local VLM override")
+    parser.add_argument(
+        "--attention-backend",
+        choices=("auto", "sdpa", "flash_attention_2", "eager"),
+        default="auto",
+    )
     parser.add_argument("--idle_timeout", type=int, default=1800, help="Idle timeout in seconds, -1 means never close")
     parser.add_argument(
         "--api-key-sha256",

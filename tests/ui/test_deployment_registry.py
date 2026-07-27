@@ -41,6 +41,7 @@ def test_deployment_catalog_is_json_only_and_exposes_only_wired_models() -> None
     assert json.loads(json.dumps(catalog)) == catalog
     assert {item["id"] for item in catalog["deployment_adapters"]} == {
         "base_framework_websocket",
+        "lerobot_pi05_websocket",
         "cosmos_policy_websocket",
     }
     assert catalog["deployment_adapters"] == catalog["adapters"]
@@ -87,6 +88,77 @@ def test_self_contained_checkpoint_detects_qwen3_from_embedded_metadata(tmp_path
     assert result["detected"]["adapter_id"] == "base_framework_websocket"
 
 
+def test_lerobot_pi05_format_is_explicit_and_uses_dedicated_adapter(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "pi05"
+    checkpoint.mkdir()
+    tokenizer = tmp_path / "paligemma-tokenizer"
+    tokenizer.mkdir()
+    (tokenizer / "tokenizer_config.json").write_text("{}", encoding="utf-8")
+    (checkpoint / "config.json").write_text(json.dumps({"type": "pi05"}), encoding="utf-8")
+    (checkpoint / "model.safetensors").write_bytes(b"not-read-by-static-inspection")
+    (checkpoint / "policy_preprocessor.json").write_text(
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "registry_name": "tokenizer_processor",
+                        "config": {"tokenizer_name": str(tokenizer)},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (checkpoint / "policy_postprocessor.json").write_text(json.dumps({"steps": []}), encoding="utf-8")
+
+    inspected = inspect_checkpoint(checkpoint, repo_root=tmp_path)
+    resolved = resolve_deployment(
+        checkpoint,
+        repo_root=tmp_path,
+        python_executable="/env/bin/python",
+    )
+
+    assert inspected["valid"] is True
+    assert inspected["checkpoint"]["checkpoint_family"] == "pi05"
+    assert inspected["checkpoint"]["checkpoint_format"] == "lerobot"
+    assert inspected["checkpoint"]["checkpoint_format_label"]["zh-CN"] == "LeRobot Pi0.5"
+    assert inspected["detected"]["combination_id"] == "deploy_lerobot_pi05"
+    assert inspected["detected"]["adapter_id"] == "lerobot_pi05_websocket"
+    assert resolved["command"] == [
+        "/env/bin/python",
+        str(tmp_path / "deployment/model_server/server_policy_lerobot_pi05.py"),
+        "--ckpt_path",
+        str(checkpoint.resolve()),
+        "--port",
+        "10093",
+        "--idle_timeout",
+        "1800",
+    ]
+
+
+def test_openpi_and_alphabrain_pi05_formats_are_not_mislabeled(tmp_path: Path) -> None:
+    openpi = tmp_path / "openpi"
+    (openpi / "params").mkdir(parents=True)
+    (openpi / "assets").mkdir()
+    (openpi / "config.json").write_text(
+        json.dumps({"format": "openpi", "policy_type": "pi05"}),
+        encoding="utf-8",
+    )
+    base_model = make_vlm_dir(tmp_path / "paligemma", "paligemma")
+    alphabrain = make_generic_checkpoint(
+        tmp_path / "alphabrain",
+        {"name": "PaliGemmaPi05", "paligemma": {"base_vlm": str(base_model)}},
+    )
+
+    openpi_result = inspect_checkpoint(openpi, repo_root=tmp_path)
+    alphabrain_result = inspect_checkpoint(alphabrain, repo_root=tmp_path)
+
+    assert openpi_result["checkpoint"]["checkpoint_format"] == "openpi"
+    assert "openpi_pi05_adapter_not_wired" in issue_codes(openpi_result)
+    assert alphabrain_result["checkpoint"]["checkpoint_format"] == "alphabrain"
+    assert alphabrain_result["detected"]["combination_id"] == "deploy_paligemma_pi05"
+
+
 def test_ambiguous_framework_returns_only_compatible_candidates(tmp_path: Path) -> None:
     base_model = make_vlm_dir(tmp_path / "custom-base-model", "custom")
     checkpoint = make_generic_checkpoint(
@@ -128,6 +200,53 @@ def test_legacy_weight_file_uses_run_config_and_never_reads_weight_bytes(tmp_pat
     assert result["checkpoint"]["format"] == "legacy_file"
     assert result["checkpoint"]["weights_path"] == str(weights.resolve())
     assert result["detected"]["combination_id"] == "deploy_qwen2_5_oft"
+
+
+def test_legacy_neurovla_resolves_project_relative_vlm_and_persists_override(tmp_path: Path) -> None:
+    project = tmp_path / "NeuroVLA"
+    base_model = make_vlm_dir(
+        project / "playground" / "Pretrained_models" / "Qwen2.5-VL-3B-Instruct",
+        "qwen2_5_vl",
+    )
+    run_dir = project / "playground" / "DeploymentBundles" / "offline" / "run"
+    weights = run_dir / "checkpoints" / "steps_200000_pytorch_model.pt"
+    weights.parent.mkdir(parents=True)
+    weights.write_bytes(b"static-inspection-only")
+    (run_dir / "config.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "framework": {
+                    "name": "NeuroVLA",
+                    "qwenvl": {
+                        "base_vlm": "./playground/Pretrained_models/Qwen2.5-VL-3B-Instruct",
+                        "attn_implementation": "flash_attention_2",
+                    },
+                },
+                "trainer": {},
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "dataset_statistics.json").write_text("{}", encoding="utf-8")
+
+    inspected = inspect_checkpoint(weights, repo_root=tmp_path / "ui")
+    resolved = resolve_deployment(
+        weights,
+        repo_root=tmp_path / "ui",
+        python_executable="/env/bin/python",
+        parameters={"precision": "bf16", "attention_backend": "auto"},
+    )
+
+    assert inspected["valid"] is True
+    assert inspected["checkpoint"]["runtime_dependency_path"] == str(base_model.resolve())
+    assert resolved["resolved_parameters"]["base_vlm_path"] == str(base_model.resolve())
+    assert resolved["command"][-4:] == [
+        "--base-vlm-path",
+        str(base_model.resolve()),
+        "--attention-backend",
+        "auto",
+    ]
 
 
 def test_world_model_checkpoint_uses_backend_and_local_dependency(tmp_path: Path) -> None:

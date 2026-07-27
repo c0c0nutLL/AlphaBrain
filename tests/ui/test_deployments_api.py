@@ -170,6 +170,7 @@ def test_deployment_preflight_create_and_key_is_returned_once(tmp_path: Path, mo
         assert capabilities.status_code == 200
         assert {row["id"] for row in capabilities.json()["catalog"]["adapters"]} == {
             "base_framework_websocket",
+            "lerobot_pi05_websocket",
             "cosmos_policy_websocket",
         }
         preflight = client.post("/api/v1/deployments/preflight", json=payload)

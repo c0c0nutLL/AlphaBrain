@@ -442,6 +442,34 @@ deployment_adapters:
         port: {type: integer, minimum: 1024, maximum: 65535, default: 10093, title: {zh-CN: "服务端口", en-US: "Service port"}}
         idle_timeout_seconds: {type: integer, minimum: -1, default: 1800, title: {zh-CN: "空闲停止时间（秒）", en-US: "Idle timeout (seconds)"}}
         precision: {type: string, enum: [bf16, fp32], default: bf16, title: {zh-CN: "推理精度", en-US: "Inference precision"}}
+        base_vlm_path:
+          type: string
+          format: local-directory
+          title: {zh-CN: "基础 VLM 本地目录（可选）", en-US: "Local base VLM directory (optional)"}
+          description: {zh-CN: "覆盖 checkpoint 配置中的基础 VLM 路径；离线 NeuroVLA bundle 可留空自动解析。", en-US: "Overrides the base VLM path in the checkpoint; offline NeuroVLA bundles can leave this empty for automatic resolution."}
+        attention_backend:
+          type: string
+          enum: [auto, sdpa, flash_attention_2, eager]
+          title: {zh-CN: "Attention 后端", en-US: "Attention backend"}
+          description: {zh-CN: "auto 会在 flash-attn 不可用时回退到 SDPA。", en-US: "auto falls back to SDPA when flash-attn is unavailable."}
+
+  - id: lerobot_pi05_websocket
+    status: verified
+    label: {zh-CN: "LeRobot Pi0.5 WebSocket 模型服务", en-US: "LeRobot Pi0.5 WebSocket model server"}
+    description: {zh-CN: "原生加载 LeRobot 0.6.0 的 Pi0.5 config、processors 与严格匹配权重，不经 AlphaBrain BaseFramework 转换。", en-US: "Natively loads LeRobot 0.6.0 Pi0.5 config, processors, and strict-matched weights without converting through AlphaBrain BaseFramework."}
+    entrypoint: deployment/model_server/server_policy_lerobot_pi05.py
+    protocol:
+      transport: websocket
+      request_format: alphabrain_policy_v1
+      metadata: {model: Pi0.5, checkpoint_format: lerobot}
+    checkpoint_kinds: [lerobot_pi05]
+    startup_timeout_seconds: 1200
+    parameter_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        port: {type: integer, minimum: 1024, maximum: 65535, default: 10093, title: {zh-CN: "服务端口", en-US: "Service port"}}
+        idle_timeout_seconds: {type: integer, minimum: -1, default: 1800, title: {zh-CN: "空闲停止时间（秒）", en-US: "Idle timeout (seconds)"}}
 
   - id: cosmos_policy_websocket
     status: verified
@@ -501,6 +529,20 @@ deployment_combinations:
     source_combinations: [paligemma_pi05_libero]
     benchmarks: [libero]
     recommended_gpu_count: 4
+    label: {zh-CN: "Pi0.5 · AlphaBrain BaseFramework 格式", en-US: "Pi0.5 · AlphaBrain BaseFramework format"}
+    checkpoint_format: alphabrain
+  - id: deploy_lerobot_pi05
+    status: verified
+    label: {zh-CN: "Pi0.5 · LeRobot 格式", en-US: "Pi0.5 · LeRobot format"}
+    description: {zh-CN: "LeRobot 0.6.0 原生 Pi0.5 checkpoint；需要三路相机、7 维 state 与任务语言。", en-US: "Native LeRobot 0.6.0 Pi0.5 checkpoint requiring three cameras, 7-D state, and task language."}
+    backbone: paligemma
+    action_head: pi05_action_expert
+    adapter: lerobot_pi05_websocket
+    framework_names: [LeRobotPI05]
+    source_combinations: [paligemma_pi05_libero]
+    benchmarks: []
+    recommended_gpu_count: 1
+    checkpoint_format: lerobot
   - id: deploy_llama_oft
     status: verified
     backbone: llama3_2_vision

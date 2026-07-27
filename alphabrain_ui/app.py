@@ -4316,10 +4316,18 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
             row["can_deploy"] = deployable
             row["inspection_summary"] = {
                 "format": inspection.get("checkpoint", {}).get("format", "unknown"),
+                "checkpoint_family": inspection.get("checkpoint", {}).get("checkpoint_family"),
+                "checkpoint_format": inspection.get("checkpoint", {}).get("checkpoint_format", "unknown"),
+                "checkpoint_format_label": inspection.get("checkpoint", {}).get("checkpoint_format_label", {}),
                 "framework": inspection.get("detected", {}).get("framework"),
                 "combination_id": inspection.get("detected", {}).get("combination_id"),
                 "issue_codes": [str(item.get("code", "unknown")) for item in inspection.get("issues", [])],
             }
+            row["checkpoint_family"] = inspection.get("checkpoint", {}).get("checkpoint_family")
+            row["checkpoint_format"] = inspection.get("checkpoint", {}).get("checkpoint_format", "unknown")
+            row["checkpoint_format_label_i18n"] = inspection.get("checkpoint", {}).get(
+                "checkpoint_format_label", {}
+            )
             if not row.get("combination_id"):
                 row["combination_id"] = inspection.get("detected", {}).get("combination_id")
         return rows

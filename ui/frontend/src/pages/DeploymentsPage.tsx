@@ -504,7 +504,7 @@ export function DeploymentsPage() {
           <div className="preset-card-grid compact">
             {localPresets.map((checkpoint) => (
               <Card key={checkpoint.id} size="small" className="preset-card">
-                <Space wrap><Tag color="geekblue">{t('checkpoints.localPreset')}</Tag><Tag color="green">{checkpoint.combination_id}</Tag></Space>
+                <Space wrap><Tag color="geekblue">{t('checkpoints.localPreset')}</Tag><Tag color="green">{checkpoint.combination_id}</Tag>{checkpoint.checkpoint_format_label_i18n?.[language] ? <Tag color={checkpoint.checkpoint_format === 'lerobot' ? 'cyan' : checkpoint.checkpoint_format === 'openpi' ? 'blue' : 'purple'}>{t('checkpoints.formatSource')} · {checkpoint.checkpoint_format_label_i18n[language]}</Tag> : null}</Space>
                 <Typography.Title level={5}>{checkpoint.name_i18n?.[language] ?? checkpoint.experiment_name}</Typography.Title>
                 <Typography.Paragraph type="secondary">{checkpoint.description_i18n?.[language] ?? checkpoint.description}</Typography.Paragraph>
                 {(checkpoint.missing_requirements_i18n?.[language]?.length ?? 0) > 0 ? <Alert type="warning" showIcon message={t('deployment.presetNeedsParameters')} description={checkpoint.missing_requirements_i18n?.[language]?.join('、')} /> : null}

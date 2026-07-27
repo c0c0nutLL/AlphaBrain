@@ -34,9 +34,15 @@ def _make_local_resources(root: Path) -> Path:
     pi05 = root / "pi05_base"
     pi05.mkdir()
     (pi05 / "model.safetensors").write_bytes(b"weights")
-    (pi05 / "config.json").write_text("{}", encoding="utf-8")
-    (pi05 / "policy_preprocessor.json").write_text("{}", encoding="utf-8")
-    (pi05 / "policy_postprocessor.json").write_text("{}", encoding="utf-8")
+    (pi05 / "config.json").write_text(json.dumps({"type": "pi05"}), encoding="utf-8")
+    tokenizer = root / "paligemma-tokenizer"
+    tokenizer.mkdir()
+    (tokenizer / "tokenizer_config.json").write_text("{}", encoding="utf-8")
+    (pi05 / "policy_preprocessor.json").write_text(
+        json.dumps({"steps": [{"registry_name": "tokenizer_processor", "config": {"tokenizer_name": str(tokenizer)}}]}),
+        encoding="utf-8",
+    )
+    (pi05 / "policy_postprocessor.json").write_text(json.dumps({"steps": []}), encoding="utf-8")
     return root
 
 
@@ -108,6 +114,8 @@ def test_builtin_template_and_checkpoint_api_are_read_only_and_inspected(
         pi05_id = "builtin-checkpoint:pi05-base"
         assert checkpoints[cosmos_id]["deployable"] is True
         assert checkpoints[cosmos_id]["inspection_summary"]["format"] == "cosmos_policy"
-        assert checkpoints[pi05_id]["deployable"] is False
+        assert checkpoints[pi05_id]["deployable"] is True
+        assert checkpoints[pi05_id]["checkpoint_format"] == "lerobot"
+        assert checkpoints[pi05_id]["checkpoint_format_label_i18n"]["zh-CN"] == "LeRobot Pi0.5"
         assert client.get(f"/api/v1/checkpoints/{cosmos_id}").status_code == 200
         assert client.get(f"/api/v1/checkpoints/{pi05_id}").status_code == 200

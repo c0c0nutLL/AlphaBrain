@@ -418,6 +418,9 @@ function normalizeCheckpoint(value: unknown): Checkpoint {
   const descriptionI18n = isRecord(row.description_i18n) ? row.description_i18n : {};
   const missingRequirements = isRecord(row.missing_requirements_i18n) ? row.missing_requirements_i18n : {};
   const inspectionSummary = isRecord(row.inspection_summary) ? row.inspection_summary : {};
+  const checkpointFormatLabel = isRecord(row.checkpoint_format_label_i18n)
+    ? row.checkpoint_format_label_i18n
+    : isRecord(inspectionSummary.checkpoint_format_label) ? inspectionSummary.checkpoint_format_label : {};
   return {
     id: stringValue(row.id),
     experiment_id: stringValue(row.experiment_id) || undefined,
@@ -446,8 +449,20 @@ function normalizeCheckpoint(value: unknown): Checkpoint {
       'zh-CN': Array.isArray(missingRequirements['zh-CN']) ? missingRequirements['zh-CN'].map(String) : undefined,
       'en-US': Array.isArray(missingRequirements['en-US']) ? missingRequirements['en-US'].map(String) : undefined,
     },
+    checkpoint_family: stringValue(row.checkpoint_family) || stringValue(inspectionSummary.checkpoint_family) || undefined,
+    checkpoint_format: stringValue(row.checkpoint_format) || stringValue(inspectionSummary.checkpoint_format) || undefined,
+    checkpoint_format_label_i18n: {
+      'zh-CN': stringValue(checkpointFormatLabel['zh-CN']) || undefined,
+      'en-US': stringValue(checkpointFormatLabel['en-US']) || undefined,
+    },
     inspection_summary: {
       format: stringValue(inspectionSummary.format) || undefined,
+      checkpoint_family: stringValue(inspectionSummary.checkpoint_family) || undefined,
+      checkpoint_format: stringValue(inspectionSummary.checkpoint_format) || undefined,
+      checkpoint_format_label: {
+        'zh-CN': stringValue(checkpointFormatLabel['zh-CN']) || undefined,
+        'en-US': stringValue(checkpointFormatLabel['en-US']) || undefined,
+      },
       framework: stringValue(inspectionSummary.framework) || undefined,
       combination_id: stringValue(inspectionSummary.combination_id) || undefined,
       issue_codes: Array.isArray(inspectionSummary.issue_codes) ? inspectionSummary.issue_codes.map(String) : undefined,

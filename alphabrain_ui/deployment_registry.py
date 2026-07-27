@@ -41,6 +41,24 @@ _RL_WEIGHT_NAMES = frozenset(
 )
 _VLM_BACKBONES = frozenset({"qwen2_5_vl", "qwen3_vl", "paligemma", "llama3_2_vision"})
 _WORLD_MODEL_BACKBONES = frozenset({"cosmos2", "cosmos2_5", "vjepa2", "wan2_2"})
+_CHECKPOINT_FORMAT_LABELS = {
+    "openpi": {"zh-CN": "OpenPI Pi0.5", "en-US": "OpenPI Pi0.5"},
+    "lerobot": {"zh-CN": "LeRobot Pi0.5", "en-US": "LeRobot Pi0.5"},
+    "alphabrain": {
+        "zh-CN": "AlphaBrain BaseFramework Pi0.5",
+        "en-US": "AlphaBrain BaseFramework Pi0.5",
+    },
+    "unknown": {"zh-CN": "未知格式", "en-US": "Unknown format"},
+}
+
+
+def _checkpoint_format_metadata(origin: str = "unknown", *, family: str | None = None) -> dict[str, Any]:
+    return {
+        "checkpoint_family": family,
+        "checkpoint_format": origin,
+        "checkpoint_origin": origin,
+        "checkpoint_format_label": deepcopy(_CHECKPOINT_FORMAT_LABELS.get(origin, _CHECKPOINT_FORMAT_LABELS["unknown"])),
+    }
 
 
 def _allowed_status(status: str, include_experimental: bool) -> bool:
@@ -424,6 +442,7 @@ def _resolve_configured_path(
     *,
     repo_root: Path,
     environment: Mapping[str, str],
+    checkpoint_root: Path | None = None,
 ) -> tuple[Path | None, str | None]:
     if value in (None, ""):
         return None, None
@@ -431,9 +450,20 @@ def _resolve_configured_path(
     if re.search(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?", expanded):
         return None, "unresolved_environment"
     path = Path(expanded).expanduser()
-    if not path.is_absolute():
-        path = repo_root / path
-    return path.resolve(strict=False), None
+    if path.is_absolute():
+        return path.resolve(strict=False), None
+
+    # Training configs are often copied into an offline deployment bundle
+    # while retaining a path relative to the original project root.  Search
+    # from the checkpoint/config location through its parents before falling
+    # back to the UI repository root.  No recursive filesystem scan is used.
+    if checkpoint_root is not None:
+        start = checkpoint_root if checkpoint_root.is_dir() else checkpoint_root.parent
+        for base in (start, *start.parents):
+            candidate = (base / path).resolve(strict=False)
+            if candidate.exists():
+                return candidate, None
+    return (repo_root / path).resolve(strict=False), None
 
 
 def _validate_embedded_vlm(path: Path) -> list[dict[str, Any]]:
@@ -534,7 +564,12 @@ def _generic_runtime_issues(
                 "llama3_2_vision": ("llamavl", "base_vlm"),
             }
             base_path = _nested(framework, *key_by_backbone[str(backbone)])
-            resolved, error = _resolve_configured_path(base_path, repo_root=repo_root, environment=environment)
+            resolved, error = _resolve_configured_path(
+                base_path,
+                repo_root=repo_root,
+                environment=environment,
+                checkpoint_root=checkpoint_dir,
+            )
             if error:
                 issues.append(
                     _issue(
@@ -573,7 +608,12 @@ def _generic_runtime_issues(
         configured_path = None
         if isinstance(world_model, Mapping):
             configured_path = world_model.get("checkpoint_path") or world_model.get("pretrained_dir")
-        resolved, error = _resolve_configured_path(configured_path, repo_root=repo_root, environment=environment)
+        resolved, error = _resolve_configured_path(
+            configured_path,
+            repo_root=repo_root,
+            environment=environment,
+            checkpoint_root=checkpoint_dir,
+        )
         if error:
             issues.append(
                 _issue(
@@ -668,6 +708,189 @@ def _inspect_cosmos_directory(path: Path) -> tuple[dict[str, Any], list[dict[str
     }, issues
 
 
+def _is_lerobot_pi05_directory(path: Path) -> bool:
+    config_path = path / "config.json"
+    if not config_path.is_file():
+        return False
+    config, _issue_value = _read_mapping(config_path, kind="json")
+    return bool(config and str(config.get("type", "")).lower() == "pi05")
+
+
+def _is_openpi_pi05_directory(path: Path) -> bool:
+    """Recognize OpenPI Pi0.5 only when layout and metadata both say so.
+
+    ``params/`` plus ``assets/`` is shared by more than one OpenPI policy, so
+    the directory name is deliberately not used as evidence for Pi0.5.
+    """
+
+    if not (path.is_dir() and (path / "params").is_dir() and (path / "assets").is_dir()):
+        return False
+
+    def contains_pi05(value: Any) -> bool:
+        if isinstance(value, Mapping):
+            return any(contains_pi05(key) or contains_pi05(item) for key, item in value.items())
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            return any(contains_pi05(item) for item in value)
+        if isinstance(value, str):
+            normalized = value.lower().replace("π", "pi").replace("_", "").replace("-", "").replace(".", "")
+            return "pi05" in normalized
+        return False
+
+    for name, kind in (
+        ("config.json", "json"),
+        ("metadata.json", "json"),
+        ("checkpoint_metadata.json", "json"),
+        ("config.yaml", "yaml"),
+    ):
+        candidate = path / name
+        if not candidate.is_file():
+            continue
+        metadata, _parse_issue = _read_mapping(candidate, kind=kind)
+        if metadata and contains_pi05(metadata):
+            return True
+    return False
+
+
+def _inspect_lerobot_pi05_directory(
+    path: Path,
+    *,
+    repo_root: Path,
+    environment: Mapping[str, str],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    issues: list[dict[str, Any]] = []
+    required = (
+        "config.json",
+        "model.safetensors",
+        "policy_preprocessor.json",
+        "policy_postprocessor.json",
+    )
+    for name in required:
+        candidate = path / name
+        if candidate.is_file():
+            continue
+        issues.append(
+            _issue(
+                "error",
+                "lerobot_pi05_file_missing",
+                f"checkpoint.{name}",
+                f"LeRobot Pi0.5 checkpoint 缺少 {name}。",
+                f"LeRobot Pi0.5 checkpoint is missing {name}.",
+                expected_path=str(candidate),
+            )
+        )
+
+    config, parse_issue = _read_mapping(path / "config.json", kind="json")
+    if parse_issue:
+        issues.append(parse_issue)
+    elif str((config or {}).get("type", "")).lower() != "pi05":
+        issues.append(
+            _issue(
+                "error",
+                "lerobot_policy_type_mismatch",
+                "checkpoint.config.type",
+                "LeRobot checkpoint 的 policy type 不是 pi05。",
+                "LeRobot checkpoint policy type is not pi05.",
+            )
+        )
+
+    tokenizer_path: Path | None = None
+    preprocessor, preprocessor_issue = _read_mapping(path / "policy_preprocessor.json", kind="json")
+    if preprocessor_issue:
+        issues.append(preprocessor_issue)
+    elif preprocessor:
+        for step in preprocessor.get("steps", []):
+            if not isinstance(step, Mapping) or step.get("registry_name") != "tokenizer_processor":
+                continue
+            step_config = step.get("config", {})
+            configured = step_config.get("tokenizer_name") if isinstance(step_config, Mapping) else None
+            tokenizer_path, error = _resolve_configured_path(
+                configured,
+                repo_root=repo_root,
+                environment=environment,
+                checkpoint_root=path,
+            )
+            if error or tokenizer_path is None or not tokenizer_path.is_dir():
+                issues.append(
+                    _issue(
+                        "error",
+                        "lerobot_pi05_tokenizer_missing",
+                        "checkpoint.policy_preprocessor.tokenizer_name",
+                        "LeRobot Pi0.5 的本地 PaliGemma tokenizer 不可访问。",
+                        "The local PaliGemma tokenizer for LeRobot Pi0.5 is unavailable.",
+                        configured_path=str(configured or ""),
+                        resolved_path=str(tokenizer_path or ""),
+                    )
+                )
+            elif not (tokenizer_path / "tokenizer_config.json").is_file():
+                issues.append(
+                    _issue(
+                        "error",
+                        "lerobot_pi05_tokenizer_config_missing",
+                        "checkpoint.policy_preprocessor.tokenizer_name",
+                        "LeRobot Pi0.5 tokenizer 目录缺少 tokenizer_config.json。",
+                        "LeRobot Pi0.5 tokenizer directory is missing tokenizer_config.json.",
+                        resolved_path=str(tokenizer_path),
+                    )
+                )
+            break
+        else:
+            issues.append(
+                _issue(
+                    "error",
+                    "lerobot_pi05_tokenizer_step_missing",
+                    "checkpoint.policy_preprocessor",
+                    "LeRobot Pi0.5 preprocessor 缺少 tokenizer_processor。",
+                    "LeRobot Pi0.5 preprocessor is missing tokenizer_processor.",
+                )
+            )
+
+    postprocessor, postprocessor_issue = _read_mapping(path / "policy_postprocessor.json", kind="json")
+    if postprocessor_issue:
+        issues.append(postprocessor_issue)
+    elif postprocessor is not None and not isinstance(postprocessor.get("steps"), list):
+        issues.append(
+            _issue(
+                "error",
+                "lerobot_pi05_postprocessor_invalid",
+                "checkpoint.policy_postprocessor",
+                "LeRobot Pi0.5 postprocessor steps 无效。",
+                "LeRobot Pi0.5 postprocessor steps are invalid.",
+            )
+        )
+
+    return {
+        "format": "lerobot_pi05",
+        "root_path": str(path),
+        "weights_path": str(path / "model.safetensors") if (path / "model.safetensors").is_file() else "",
+        "config_path": str(path / "config.json") if (path / "config.json").is_file() else "",
+        "statistics_path": "",
+        "t5_embeddings_path": "",
+        "runtime_dependency_path": str(tokenizer_path) if tokenizer_path else None,
+        **_checkpoint_format_metadata("lerobot", family="pi05"),
+    }, issues
+
+
+def _inspect_openpi_pi05_directory(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    return {
+        "format": "openpi_pi05",
+        "root_path": str(path),
+        "weights_path": str(path / "params"),
+        "config_path": "",
+        "statistics_path": "",
+        "t5_embeddings_path": "",
+        "runtime_dependency_path": str(path / "assets"),
+        **_checkpoint_format_metadata("openpi", family="pi05"),
+    }, [
+        _issue(
+            "error",
+            "openpi_pi05_adapter_not_wired",
+            "checkpoint",
+            "已识别 OpenPI Pi0.5 格式，但当前仅接通 LeRobot Pi0.5 部署适配器。",
+            "OpenPI Pi0.5 format was detected, but only the LeRobot Pi0.5 adapter is currently wired.",
+        )
+    ]
+
+
 def inspect_checkpoint(
     source: str | Path | Mapping[str, Any],
     *,
@@ -690,6 +913,7 @@ def inspect_checkpoint(
         "statistics_path": "",
         "t5_embeddings_path": "",
         "runtime_dependency_path": None,
+        **_checkpoint_format_metadata(),
     }
     if not resolved_source["valid"]:
         return _plain_copy(
@@ -768,7 +992,19 @@ def inspect_checkpoint(
             (source_path / name).is_file()
             for name in ("cosmos_dit.pt", "libero_t5_embeddings.pkl", "libero_dataset_statistics.json")
         )
-    if source_path.is_dir() and cosmos_signature:
+    if source_path.is_dir() and _is_lerobot_pi05_directory(source_path):
+        checkpoint, pi05_issues = _inspect_lerobot_pi05_directory(
+            source_path,
+            repo_root=repo,
+            environment=env,
+        )
+        issues.extend(pi05_issues)
+        config = {"framework": {"name": "LeRobotPI05"}}
+    elif source_path.is_dir() and _is_openpi_pi05_directory(source_path):
+        checkpoint, openpi_issues = _inspect_openpi_pi05_directory(source_path)
+        issues.extend(openpi_issues)
+        config = {"framework": {"name": "OpenPIPI05"}}
+    elif source_path.is_dir() and cosmos_signature:
         checkpoint, cosmos_issues = _inspect_cosmos_directory(source_path)
         issues.extend(cosmos_issues)
         framework_config = source_path / "framework_config.yaml"
@@ -807,6 +1043,7 @@ def inspect_checkpoint(
                 "statistics_path": str(statistics_path) if statistics_path.is_file() else "",
                 "t5_embeddings_path": "",
                 "runtime_dependency_path": None,
+                **_checkpoint_format_metadata(),
             }
         else:
             weight_path = next((root / name for name in _GENERIC_WEIGHT_NAMES if (root / name).is_file()), None)
@@ -820,6 +1057,7 @@ def inspect_checkpoint(
                 "statistics_path": str(statistics_path) if statistics_path.is_file() else "",
                 "t5_embeddings_path": "",
                 "runtime_dependency_path": None,
+                **_checkpoint_format_metadata(),
             }
             if weight_path is None:
                 issues.append(
@@ -871,7 +1109,23 @@ def inspect_checkpoint(
                 issues.append(parse_issue)
 
     detected = _detect_architecture(config or {}, Path(checkpoint["root_path"]))
-    if checkpoint["format"] == "cosmos_policy":
+    if checkpoint["format"] == "lerobot_pi05":
+        detected = {
+            "framework": "LeRobotPI05",
+            "backbone": "paligemma",
+            "action_head": "pi05_action_expert",
+            "is_world_model": False,
+            "world_model_backend": None,
+        }
+    elif checkpoint["format"] == "openpi_pi05":
+        detected = {
+            "framework": "OpenPIPI05",
+            "backbone": "paligemma",
+            "action_head": "pi05_action_expert",
+            "is_world_model": False,
+            "world_model_backend": None,
+        }
+    elif checkpoint["format"] == "cosmos_policy":
         detected = {
             "framework": "CosmosPolicy",
             "backbone": "cosmos2",
@@ -943,7 +1197,7 @@ def inspect_checkpoint(
         detected["backbone"] = selected.get("backbone")
         detected["action_head"] = selected.get("action_head")
 
-    if checkpoint["format"] != "cosmos_policy" and config is not None:
+    if checkpoint["format"] not in {"cosmos_policy", "lerobot_pi05", "openpi_pi05"} and config is not None:
         runtime_issues, dependency = _generic_runtime_issues(
             Path(checkpoint["root_path"]),
             config,
@@ -953,6 +1207,9 @@ def inspect_checkpoint(
         )
         issues.extend(runtime_issues)
         checkpoint["runtime_dependency_path"] = dependency
+
+    if detected.get("framework") == "PaliGemmaPi05":
+        checkpoint.update(_checkpoint_format_metadata("alphabrain", family="pi05"))
 
     adapter_ids = {str(item.get("adapter")) for item in candidates}
     adapter_id = str(selected["adapter"]) if selected else (next(iter(adapter_ids)) if len(adapter_ids) == 1 else None)
@@ -1199,6 +1456,22 @@ def build_adapter_command(
                 "BaseFramework model-server precision must be bf16 or fp32.",
             )
         )
+    attention_backend = str(resolved_parameters.get("attention_backend", "auto")).lower()
+    if adapter_id == "base_framework_websocket" and attention_backend not in {
+        "auto",
+        "sdpa",
+        "flash_attention_2",
+        "eager",
+    }:
+        issues.append(
+            _issue(
+                "error",
+                "attention_backend_invalid",
+                "parameters.attention_backend",
+                "Attention 后端必须是 auto、sdpa、flash_attention_2 或 eager。",
+                "Attention backend must be auto, sdpa, flash_attention_2, or eager.",
+            )
+        )
 
     repo = Path(repo_root).expanduser().resolve() if repo_root is not None else Path.cwd().resolve()
     command: list[str] = []
@@ -1206,6 +1479,25 @@ def build_adapter_command(
         entrypoint = repo / str(adapter["entrypoint"])
         command = [str(python_executable), str(entrypoint)]
         if adapter_id == "base_framework_websocket":
+            base_vlm_value = str(resolved_parameters.get("base_vlm_path", "") or "").strip()
+            if base_vlm_value:
+                base_vlm = Path(base_vlm_value).expanduser()
+                if not base_vlm.is_absolute():
+                    base_vlm = repo / base_vlm
+                base_vlm = base_vlm.resolve(strict=False)
+                resolved_parameters["base_vlm_path"] = str(base_vlm)
+                if not base_vlm.is_dir():
+                    issues.append(
+                        _issue(
+                            "error",
+                            "base_vlm_path_missing",
+                            "parameters.base_vlm_path",
+                            "基础 VLM 本地目录不存在或不是目录。",
+                            "The local base VLM path does not exist or is not a directory.",
+                            resolved_path=str(base_vlm),
+                        )
+                    )
+                    command = []
             command.extend(
                 [
                     "--ckpt_path",
@@ -1218,6 +1510,21 @@ def build_adapter_command(
             )
             if precision == "bf16":
                 command.append("--use_bf16")
+            if base_vlm_value:
+                command.extend(["--base-vlm-path", str(resolved_parameters["base_vlm_path"])])
+            if "attention_backend" in resolved_parameters:
+                command.extend(["--attention-backend", attention_backend])
+        elif adapter_id == "lerobot_pi05_websocket":
+            command.extend(
+                [
+                    "--ckpt_path",
+                    checkpoint_path,
+                    "--port",
+                    str(port),
+                    "--idle_timeout",
+                    str(idle_timeout),
+                ]
+            )
         elif adapter_id == "cosmos_policy_websocket":
             pretrained = Path(str(resolved_parameters["pretrained_dir"])).expanduser()
             if not pretrained.is_absolute():
@@ -1316,6 +1623,20 @@ def resolve_deployment(
         if inspection["checkpoint"]["format"] != "legacy_file"
         else inspection["checkpoint"]["weights_path"]
     )
+    command_parameters = _plain_copy(dict(parameters or {}))
+    if (
+        adapter_id == "base_framework_websocket"
+        and not command_parameters.get("base_vlm_path")
+        and inspection["checkpoint"].get("runtime_dependency_path")
+        and (
+            inspection["checkpoint"].get("format") == "legacy_file"
+            or not any(
+                (Path(inspection["checkpoint"]["root_path"]) / dirname).is_dir()
+                for dirname in ("vlm_pretrained", "qwen_pretrained")
+            )
+        )
+    ):
+        command_parameters["base_vlm_path"] = inspection["checkpoint"]["runtime_dependency_path"]
     command = build_adapter_command(
         adapter_id,
         checkpoint_path,
@@ -1324,7 +1645,7 @@ def resolve_deployment(
         action_head_id=inspection["detected"].get("action_head"),
         python_executable=python_executable,
         repo_root=repo_root,
-        parameters=parameters,
+        parameters=command_parameters,
         include_experimental=include_experimental,
         source_catalog=source_catalog,
     )

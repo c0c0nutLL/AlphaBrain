@@ -171,8 +171,14 @@ export interface Checkpoint {
   description?: string;
   description_i18n?: Partial<Record<Language, string>>;
   missing_requirements_i18n?: Partial<Record<Language, string[]>>;
+  checkpoint_family?: string;
+  checkpoint_format?: 'openpi' | 'lerobot' | 'alphabrain' | 'unknown' | string;
+  checkpoint_format_label_i18n?: Partial<Record<Language, string>>;
   inspection_summary?: {
     format?: string;
+    checkpoint_family?: string;
+    checkpoint_format?: string;
+    checkpoint_format_label?: Partial<Record<Language, string>>;
     framework?: string;
     combination_id?: string;
     issue_codes?: string[];
