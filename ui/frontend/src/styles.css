@@ -276,13 +276,55 @@ button, input, textarea, select { font: inherit; }
 .stage-steps { margin-top: 28px; }
 .stage-steps .ant-steps-item { cursor: pointer; }
 
-.settings-panel { max-width: 720px; padding: 5px 24px 25px; }
-.settings-panel > h4 { margin-top: 0; }
+.settings-shell > .ant-card-body { padding: 0; }
+.settings-tabs > .ant-tabs-nav {
+  width: 210px;
+  margin: 0;
+  padding: 20px 10px;
+  border-radius: 12px 0 0 12px;
+  background: var(--surface-subtle);
+}
+.settings-tabs > .ant-tabs-content-holder { min-height: 620px; }
+.settings-tabs .ant-tabs-tab { padding: 11px 14px; }
+.settings-panel { max-width: 920px; padding: 28px 32px 34px; }
+.settings-panel-heading { margin-bottom: 22px; }
+.settings-panel-heading h4 { margin: 0 0 4px; }
+.settings-panel-heading .ant-typography { margin-bottom: 0; }
 .settings-panel > .ant-alert { margin-bottom: 22px; }
-.settings-panel .ant-form { margin-top: 20px; }
-.wandb-secret-card { margin-top: 24px; border-color: color-mix(in srgb, var(--primary) 25%, var(--border)); background: var(--surface-subtle); }
+.settings-panel .ant-form { margin-top: 0; }
+.settings-section-card { border-color: var(--border); background: var(--surface); }
+.settings-section-card > .ant-card-body { padding: 22px; }
+.settings-groups { margin-top: 18px; border-color: var(--border); background: var(--surface); }
+.settings-groups > .ant-collapse-item > .ant-collapse-header {
+  min-height: 76px;
+  align-items: center;
+  padding: 14px 18px;
+}
+.settings-groups > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box { padding: 6px 20px 22px; }
+.settings-group-label { display: flex; align-items: center; width: 100%; min-width: 0; gap: 12px; }
+.settings-group-icon {
+  display: grid;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  font-size: 17px;
+}
+.settings-group-copy { display: grid; min-width: 0; gap: 2px; }
+.settings-group-copy > .ant-typography:last-child { font-size: 12px; line-height: 1.45; }
+.settings-group-status { margin-left: auto; padding-left: 12px; }
+.settings-save-row { display: flex; justify-content: flex-end; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
+.settings-advanced-group { margin-top: 16px; }
+.settings-integration-group { margin-top: 16px; }
+.settings-nested-collapse { margin: -2px 0 8px; border-radius: 8px; background: var(--surface-subtle); }
+.settings-nested-collapse .ant-collapse-header { padding-inline: 12px !important; color: var(--text-muted) !important; }
+.settings-path-grid .ant-form-item-label > label { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.wandb-secret-card { padding: 2px 0; }
 .wandb-secret-card .ant-typography { margin-bottom: 14px; line-height: 1.6; }
-.wandb-secret-card > .ant-card-body > .ant-alert { margin-bottom: 14px; }
+.wandb-secret-card > .ant-alert { margin-bottom: 14px; }
 .wandb-secret-actions { margin-top: 14px; }
 
 .deployments-page tbody tr { cursor: pointer; }
@@ -398,9 +440,9 @@ button, input, textarea, select { font: inherit; }
   .builder-shell .ant-steps-item-title { display: none; }
   .job-summary { grid-template-columns: repeat(2, 1fr); }
   .settings-page .ant-tabs { display: block; }
-  .settings-page .ant-tabs-nav { width: 100%; }
+  .settings-page .ant-tabs-nav { width: 100%; padding: 8px; border-radius: 12px 12px 0 0; }
   .settings-page .ant-tabs-nav-list { display: flex; flex-direction: row; overflow-x: auto; }
-  .settings-panel { padding: 12px 2px; }
+  .settings-panel { padding: 22px 18px 26px; }
   .deployment-create-modal .ant-modal-body { min-height: 540px; }
   .deployment-create-modal .ant-steps-item-title { display: none; }
   .evaluation-create-modal .ant-modal-body { min-height: 580px; }
@@ -425,6 +467,11 @@ button, input, textarea, select { font: inherit; }
   .table-toolbar { align-items: stretch; flex-direction: column; }
   .table-toolbar .ant-segmented { overflow-x: auto; }
   .mode-picker { grid-template-columns: 1fr; }
+  .settings-panel { padding-inline: 12px; }
+  .settings-groups > .ant-collapse-item > .ant-collapse-header { padding-inline: 12px; }
+  .settings-group-copy > .ant-typography:last-child { display: none; }
+  .settings-group-status { padding-left: 4px; }
+  .settings-section-card > .ant-card-body { padding: 16px; }
   .evaluation-preset-grid { grid-template-columns: 1fr; }
   .setup-hero > h1 { font-size: 37px; }
   .setup-hero > h2 { font-size: 21px; }
