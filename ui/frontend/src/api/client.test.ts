@@ -26,7 +26,7 @@ describe('API response normalization', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ initialized: true, deployment_mode: 'lab' }))
       .mockResolvedValueOnce(jsonResponse({
-        user: { id: 'u1', username: 'alice', display_name: 'Alice', role: 'researcher', language: 'en-US', theme: 'dark', is_active: true },
+        user: { id: 'u1', username: 'alice', display_name: 'Alice', role: 'researcher', language: 'en-US', theme: 'dark', gpu_refresh_interval_seconds: 30, is_active: true },
         experimental_available: true,
       }))
       .mockResolvedValueOnce(jsonResponse({
@@ -36,13 +36,27 @@ describe('API response normalization', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(api.setup.status()).resolves.toMatchObject({ configured: true, mode: 'laboratory' });
-    await expect(api.auth.me()).resolves.toMatchObject({ username: 'alice', locale: 'en-US', theme: 'dark', experimental_available: true });
+    await expect(api.auth.me()).resolves.toMatchObject({ username: 'alice', locale: 'en-US', theme: 'dark', gpu_refresh_interval_seconds: 30, experimental_available: true });
     await expect(api.gpus()).resolves.toMatchObject([{ index: 0, memory_total_mb: 24576, memory_used_mb: 6144, available: true }]);
   });
 
   it('uses the backend startup suggestion before setup', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse({ initialized: false, deployment_mode: 'personal' })));
     await expect(api.setup.status()).resolves.toEqual({ configured: false, mode: 'personal' });
+  });
+
+  it('persists the GPU refresh interval with user preferences', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({
+      id: 'u1', username: 'alice', role: 'researcher', gpu_refresh_interval_seconds: 10,
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('document', { cookie: '' });
+
+    await expect(api.settings.updatePreferences({ gpu_refresh_interval_seconds: 10 })).resolves.toMatchObject({
+      gpu_refresh_interval_seconds: 10,
+    });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({ gpu_refresh_interval_seconds: 10 });
   });
 
   it('normalizes the capability catalog and sends the experiment envelope', async () => {
@@ -419,7 +433,7 @@ describe('API response normalization', () => {
         },
         remote_training: { enabled: true, target: 'researcher@gpu.example.edu' },
       }))
-      .mockResolvedValueOnce(jsonResponse([{ path: '/results', used_bytes: 90, total_bytes: 100, free_bytes: 10, low_space: true }]))
+      .mockResolvedValueOnce(jsonResponse([{ path: '/results', mount_point: '/mnt/results', used_bytes: 90, total_bytes: 100, free_bytes: 10, low_space: true }]))
       .mockResolvedValueOnce(jsonResponse([{ id: 'j1', experiment_id: 'e1', owner_id: 'u1', name: 'Run', status: 'queued', requested_gpu_ids: [], assigned_gpu_ids: [] }]))
       .mockResolvedValueOnce(jsonResponse([{ id: 't1', owner_id: 'u1', name: 'Template', visibility: 'shared', spec: { parameters: { run_id: 'old-run', per_device_batch_size: 4, gradient_accumulation_steps: 2 }, resources: {} } }]))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
@@ -428,7 +442,7 @@ describe('API response normalization', () => {
 
     await expect(api.dashboard()).resolves.toMatchObject({
       alerts: [{ id: 'low_disk_space', level: 'warning', message: '/results' }],
-      storage: { path: '/results', warning: true },
+      storage: { path: '/results', mount_point: '/mnt/results', warning: true },
       system_metrics: {
         available: true,
         cpu_percent: 24.6,
@@ -610,17 +624,17 @@ describe('API response normalization', () => {
     ]);
   });
 
-  it('round-trips the dedicated model-server Python setting', async () => {
+  it('round-trips dedicated model-server Python and storage-monitor settings', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({ deployment_mode: 'personal', results_roots: ['results', '/mnt/lab-results'], model_server_python: '/opt/alphabrain/bin/python', secure_cookies: false }))
-      .mockResolvedValueOnce(jsonResponse({ deployment_mode: 'personal', results_roots: ['results', '/mnt/lab-results'], model_server_python: '/srv/model/bin/python', secure_cookies: true }));
+      .mockResolvedValueOnce(jsonResponse({ deployment_mode: 'personal', results_roots: ['results', '/mnt/lab-results'], storage_monitor_path: '/mnt/models', model_server_python: '/opt/alphabrain/bin/python', secure_cookies: false }))
+      .mockResolvedValueOnce(jsonResponse({ deployment_mode: 'personal', results_roots: ['results', '/mnt/lab-results'], storage_monitor_path: '/mnt/datasets', model_server_python: '/srv/model/bin/python', secure_cookies: true }));
     vi.stubGlobal('fetch', fetchMock);
     vi.stubGlobal('document', { cookie: '' });
 
-    await expect(api.settings.get()).resolves.toMatchObject({ model_server_python: '/opt/alphabrain/bin/python', results_roots: ['results', '/mnt/lab-results'], secure_cookies: false });
-    await expect(api.settings.update({ model_server_python: '/srv/model/bin/python', results_roots: ['results', '/mnt/lab-results'], secure_cookies: true })).resolves.toMatchObject({ model_server_python: '/srv/model/bin/python', secure_cookies: true });
+    await expect(api.settings.get()).resolves.toMatchObject({ model_server_python: '/opt/alphabrain/bin/python', results_roots: ['results', '/mnt/lab-results'], storage_monitor_path: '/mnt/models', secure_cookies: false });
+    await expect(api.settings.update({ model_server_python: '/srv/model/bin/python', results_roots: ['results', '/mnt/lab-results'], storage_monitor_path: '/mnt/datasets', secure_cookies: true })).resolves.toMatchObject({ model_server_python: '/srv/model/bin/python', storage_monitor_path: '/mnt/datasets', secure_cookies: true });
     const [, init] = fetchMock.mock.calls[1] as [string, RequestInit];
-    expect(JSON.parse(String(init.body))).toEqual({ model_server_python: '/srv/model/bin/python', results_roots: ['results', '/mnt/lab-results'], secure_cookies: true });
+    expect(JSON.parse(String(init.body))).toEqual({ model_server_python: '/srv/model/bin/python', results_roots: ['results', '/mnt/lab-results'], storage_monitor_path: '/mnt/datasets', secure_cookies: true });
   });
 
   it('uses the safe registry overlay and local reference-result endpoints', async () => {

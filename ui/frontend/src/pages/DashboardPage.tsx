@@ -9,6 +9,7 @@ import type { Experiment } from '../api/types';
 import { AsyncState } from '../components/AsyncState';
 import { GpuCard } from '../components/GpuCard';
 import { PageIntro } from '../components/PageIntro';
+import { useGpuRefreshInterval } from '../hooks/useGpuRefreshInterval';
 import { StatusTag } from '../components/StatusTag';
 
 function formatBytes(value?: number): string {
@@ -24,14 +25,15 @@ function boundedPercent(value?: number): number {
 export function DashboardPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const gpuRefreshInterval = useGpuRefreshInterval();
   const dashboard = useQuery({ queryKey: ['dashboard'], queryFn: api.dashboard, refetchInterval: 15_000 });
-  const gpus = useQuery({ queryKey: ['gpus'], queryFn: api.gpus, refetchInterval: 5_000 });
+  const gpus = useQuery({ queryKey: ['gpus'], queryFn: api.gpus, refetchInterval: gpuRefreshInterval });
   const remoteTrainingEnabled = Boolean(dashboard.data?.remote_training?.enabled);
   const remoteMetrics = useQuery({
     queryKey: ['remote-training-metrics'],
     queryFn: api.remoteTraining.metrics,
     enabled: remoteTrainingEnabled,
-    refetchInterval: 10_000,
+    refetchInterval: remoteTrainingEnabled ? gpuRefreshInterval : false,
     retry: false,
   });
   const storage = dashboard.data?.storage;
@@ -102,7 +104,8 @@ export function DashboardPage() {
                   <Progress type="dashboard" percent={storagePercent} strokeColor={storage.warning ? '#e5484d' : '#3157d5'} />
                   <div>
                     <Typography.Text strong>{formatBytes(storage.free_bytes)} {t('dashboard.availableSpace')}</Typography.Text>
-                    <Typography.Text type="secondary">{storage.path}</Typography.Text>
+                    <Typography.Text type="secondary">{t('dashboard.monitoredPath')}: {storage.path}</Typography.Text>
+                    {storage.mount_point ? <Typography.Text type="secondary">{t('dashboard.mountPoint')}: {storage.mount_point}</Typography.Text> : null}
                     <Typography.Text type="secondary">{formatBytes(storage.used_bytes)} / {formatBytes(storage.total_bytes)}</Typography.Text>
                   </div>
                 </div>

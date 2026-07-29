@@ -46,6 +46,7 @@ import type {
   PreflightResult,
 } from '../api/types';
 import { usePreferences } from '../app-context';
+import { useGpuRefreshInterval } from '../hooks/useGpuRefreshInterval';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
 import { ServerDirectoryPicker } from '../components/ServerDirectoryPicker';
@@ -145,6 +146,7 @@ function CreateEvaluationModal({ open, onClose, onCreated }: {
 }) {
   const { t } = useTranslation();
   const { language } = usePreferences();
+  const gpuRefreshInterval = useGpuRefreshInterval();
   const [form] = Form.useForm<EvaluationFormValues>();
   const [step, setStep] = useState(0);
   const [preflightResult, setPreflightResult] = useState<PreflightResult>();
@@ -153,7 +155,7 @@ function CreateEvaluationModal({ open, onClose, onCreated }: {
   const deploymentCapabilities = useQuery({ queryKey: ['deployment-capabilities'], queryFn: api.deployments.capabilities, enabled: open });
   const checkpoints = useQuery({ queryKey: ['checkpoints'], queryFn: api.checkpoints, enabled: open });
   const deployments = useQuery({ queryKey: ['deployments'], queryFn: () => api.deployments.list(), enabled: open });
-  const gpus = useQuery({ queryKey: ['gpus'], queryFn: api.gpus, enabled: open });
+  const gpus = useQuery({ queryKey: ['gpus'], queryFn: api.gpus, enabled: open, refetchInterval: open ? gpuRefreshInterval : false });
   const values = Form.useWatch([], form) as EvaluationFormValues | undefined;
   const checkpointKind = values?.checkpoint_kind ?? 'indexed';
   const evaluationKind = values?.kind ?? 'standard';

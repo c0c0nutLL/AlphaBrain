@@ -67,6 +67,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(32), default="researcher", index=True)
     language: Mapped[str] = mapped_column(String(16), default="zh-CN")
     theme: Mapped[str] = mapped_column(String(16), default="light")
+    gpu_refresh_interval_seconds: Mapped[int] = mapped_column(Integer, default=5)
     experimental_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_local: Mapped[bool] = mapped_column(Boolean, default=False)

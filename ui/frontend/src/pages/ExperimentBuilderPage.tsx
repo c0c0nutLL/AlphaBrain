@@ -62,6 +62,7 @@ import { AsyncState } from '../components/AsyncState';
 import { DatasetDirectoryPicker } from '../components/DatasetDirectoryPicker';
 import { PageIntro } from '../components/PageIntro';
 import { TrainingWorkflowFields } from '../components/TrainingWorkflowFields';
+import { useGpuRefreshInterval } from '../hooks/useGpuRefreshInterval';
 import { capabilityMatches, defaultWandbRunConfig, filterSupportedWandbCategories, isBuilderStepComplete, normalizeBuilderResources, workflowFieldActive } from './builder-validation';
 
 interface BuilderValues {
@@ -163,6 +164,7 @@ function DynamicField({ schema, language }: { schema: ParameterSchema; language:
 export function ExperimentBuilderPage() {
   const { t } = useTranslation();
   const { language, theme } = usePreferences();
+  const gpuRefreshInterval = useGpuRefreshInterval();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const templateId = searchParams.get('template');
@@ -191,7 +193,7 @@ export function ExperimentBuilderPage() {
   const checkpointQuery = useQuery({ queryKey: ['checkpoints'], queryFn: api.checkpoints });
   const registeredDatasetsQuery = useQuery({ queryKey: ['datasets'], queryFn: api.datasets.list });
   const datasetMixturesQuery = useQuery({ queryKey: ['dataset-mixtures'], queryFn: api.datasets.mixtures.list });
-  const gpuQuery = useQuery({ queryKey: ['gpus'], queryFn: api.gpus, refetchInterval: 5_000 });
+  const gpuQuery = useQuery({ queryKey: ['gpus'], queryFn: api.gpus, refetchInterval: gpuRefreshInterval });
   const detectedGpuCount = gpuQuery.data?.length;
   const singleGpu = detectedGpuCount === 1;
 

@@ -41,6 +41,7 @@ import type {
   PreflightResult,
 } from '../api/types';
 import { usePreferences } from '../app-context';
+import { useGpuRefreshInterval } from '../hooks/useGpuRefreshInterval';
 import { AsyncState } from '../components/AsyncState';
 import { DeploymentApiKeyModal } from '../components/DeploymentApiKeyModal';
 import { PageIntro } from '../components/PageIntro';
@@ -112,13 +113,14 @@ function CreateDeploymentModal({ open, onClose, onCreated }: {
 }) {
   const { t } = useTranslation();
   const { language } = usePreferences();
+  const gpuRefreshInterval = useGpuRefreshInterval();
   const [form] = Form.useForm<DeploymentFormValues>();
   const [step, setStep] = useState(0);
   const [preflightResult, setPreflightResult] = useState<PreflightResult>();
   const [searchParams] = useSearchParams();
   const capabilities = useQuery({ queryKey: ['deployment-capabilities'], queryFn: api.deployments.capabilities, enabled: open });
   const checkpoints = useQuery({ queryKey: ['checkpoints'], queryFn: api.checkpoints, enabled: open });
-  const gpus = useQuery({ queryKey: ['gpus'], queryFn: api.gpus, enabled: open });
+  const gpus = useQuery({ queryKey: ['gpus'], queryFn: api.gpus, enabled: open, refetchInterval: open ? gpuRefreshInterval : false });
   const values = Form.useWatch([], form) as DeploymentFormValues | undefined;
   const visibleGpuCount = gpus.data?.length;
   const singleGpu = visibleGpuCount === 1;

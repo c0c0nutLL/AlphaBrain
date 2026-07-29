@@ -18,6 +18,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "experimental_globally_enabled": False,
     "environment": {},
     "results_roots": ["results"],
+    # Empty keeps the historical behavior: monitor the first results root.
+    "storage_monitor_path": "",
     "dataset_roots": ["data"],
     "managed_dataset_root": ".alphabrain-ui/datasets",
     "pretrained_root": "",

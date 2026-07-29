@@ -212,6 +212,7 @@ function normalizeUser(value: unknown, experimentalAvailable?: boolean, deployme
     active: row.is_active !== false,
     locale: row.language === 'en-US' ? 'en-US' : 'zh-CN',
     theme: row.theme === 'dark' ? 'dark' : 'light',
+    gpu_refresh_interval_seconds: numberValue(row.gpu_refresh_interval_seconds, 5),
     experimental_enabled: Boolean(row.experimental_enabled),
     experimental_available: experimentalAvailable,
     deployment_mode: deploymentMode === 'lab' ? 'laboratory' : deploymentMode === 'personal' ? 'personal' : undefined,
@@ -532,6 +533,7 @@ function normalizeStorage(value: unknown): StorageSummary | undefined {
   if (!row) return undefined;
   return {
     path: stringValue(row.path),
+    mount_point: stringValue(row.mount_point) || undefined,
     used_bytes: numberValue(row.used_bytes),
     total_bytes: numberValue(row.total_bytes),
     free_bytes: numberValue(row.free_bytes),
@@ -1472,6 +1474,7 @@ function normalizeSettings(value: unknown): SystemSettings {
     experimental_allowed: Boolean(row.experimental_globally_enabled),
     results_roots: roots.length ? roots : ['results'],
     results_root: roots[0] ?? 'results',
+    storage_monitor_path: stringValue(row.storage_monitor_path) || undefined,
     dataset_roots: Array.isArray(row.dataset_roots) ? row.dataset_roots.map(String) : ['data'],
     managed_dataset_root: stringValue(row.managed_dataset_root) || undefined,
     pretrained_root: stringValue(row.pretrained_root) || undefined,
@@ -1504,6 +1507,7 @@ function settingsPayload(value: Partial<SystemSettings>): Record<string, unknown
   if (value.experimental_allowed != null) payload.experimental_globally_enabled = value.experimental_allowed;
   if (value.results_roots !== undefined) payload.results_roots = value.results_roots;
   else if (value.results_root) payload.results_roots = [value.results_root];
+  if (value.storage_monitor_path != null) payload.storage_monitor_path = value.storage_monitor_path;
   if (value.dataset_roots) payload.dataset_roots = value.dataset_roots;
   if (value.managed_dataset_root != null) payload.managed_dataset_root = value.managed_dataset_root;
   if (value.pretrained_root != null) payload.pretrained_root = value.pretrained_root;
@@ -1952,6 +1956,7 @@ export const api = {
       body: body({
         language: payload.locale,
         theme: payload.theme,
+        gpu_refresh_interval_seconds: payload.gpu_refresh_interval_seconds,
         experimental_enabled: payload.experimental_enabled,
       }),
     })),

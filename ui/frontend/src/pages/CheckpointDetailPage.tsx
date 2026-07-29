@@ -27,6 +27,7 @@ import type { ModelPublication } from '../api/types';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
 import { UtilityProgress } from '../components/UtilityProgress';
+import { useGpuRefreshInterval } from '../hooks/useGpuRefreshInterval';
 
 interface PublishValues {
   repo_id: string;
@@ -45,6 +46,7 @@ export function CheckpointDetailPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const gpuRefreshInterval = useGpuRefreshInterval();
   const [publishOpen, setPublishOpen] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [publishForm] = Form.useForm<PublishValues>();
@@ -52,7 +54,7 @@ export function CheckpointDetailPage() {
   const checkpoint = useQuery({ queryKey: ['checkpoint', checkpointId], queryFn: () => api.checkpointDetail(checkpointId), enabled: Boolean(checkpointId) });
   const publications = useQuery({ queryKey: ['model-publications', checkpointId], queryFn: () => api.publications.list(checkpointId), enabled: Boolean(checkpointId), refetchInterval: 10_000 });
   const utilities = useQuery({ queryKey: ['utilities'], queryFn: api.utilities.list, refetchInterval: 2_000 });
-  const gpus = useQuery({ queryKey: ['gpus'], queryFn: api.gpus, refetchInterval: 10_000 });
+  const gpus = useQuery({ queryKey: ['gpus'], queryFn: api.gpus, refetchInterval: gpuRefreshInterval });
   const visibleGpus = listFrom(gpus.data);
   const mergeModels = checkpoint.data?.tools.merge_lora.models ?? [];
   const suggestedName = useMemo(() => {

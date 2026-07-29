@@ -9,6 +9,7 @@ import type { Language, SystemSettings, ThemeMode, User } from '../api/types';
 import { usePreferences } from '../app-context';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
+import { ServerDirectoryPicker } from '../components/ServerDirectoryPicker';
 
 export function SettingsPage() {
   const { t } = useTranslation();
@@ -42,7 +43,12 @@ export function SettingsPage() {
     }
   }, [environmentForm, experimentalForm, generalForm, settings.data]);
   useEffect(() => {
-    if (me.data) preferenceForm.setFieldsValue({ locale: me.data.locale ?? language, theme: me.data.theme ?? theme, experimental_enabled: me.data.experimental_enabled });
+    if (me.data) preferenceForm.setFieldsValue({
+      locale: me.data.locale ?? language,
+      theme: me.data.theme ?? theme,
+      gpu_refresh_interval_seconds: me.data.gpu_refresh_interval_seconds ?? 5,
+      experimental_enabled: me.data.experimental_enabled,
+    });
   }, [language, me.data, preferenceForm, theme]);
 
   const updateSystem = useMutation({
@@ -166,6 +172,9 @@ export function SettingsPage() {
                     <Typography.Title level={4}>{t('settings.environment')}</Typography.Title>
                     <Form<SystemSettings> form={environmentForm} layout="vertical" disabled={!isAdmin}>
                       <Form.Item name="results_roots" label={t('settings.resultsRoots')} extra={t('settings.resultsRootsHint')} rules={[{ required: true, type: 'array', min: 1 }]}><Select mode="tags" tokenSeparators={[',']} placeholder="results/" /></Form.Item>
+                      <Form.Item name="storage_monitor_path" label={t('settings.storageMonitorPath')} extra={t('settings.storageMonitorPathHint')}>
+                        <ServerDirectoryPicker placeholder={t('settings.storageMonitorPathPlaceholder')} />
+                      </Form.Item>
                       <Form.Item name="dataset_roots" label={t('settings.datasetRoots')} extra={t('settings.datasetRootsHint')}><Select mode="tags" tokenSeparators={[',']} placeholder="data/" /></Form.Item>
                       <Form.Item name="managed_dataset_root" label={t('settings.managedDatasetRoot')}><Input placeholder=".alphabrain-ui/datasets" /></Form.Item>
                       <Form.Item name="pretrained_root" label={t('settings.pretrainedRoot')}><Input placeholder="data/pretrained_models" /></Form.Item>
@@ -285,6 +294,18 @@ export function SettingsPage() {
                     <Form<Partial<User>> form={preferenceForm} layout="vertical">
                       <Form.Item name="locale" label={t('common.language')}><Select options={[{ label: '简体中文', value: 'zh-CN' satisfies Language }, { label: 'English', value: 'en-US' satisfies Language }]} /></Form.Item>
                       <Form.Item name="theme" label={t('common.theme')}><Radio.Group options={[{ label: t('common.light'), value: 'light' satisfies ThemeMode }, { label: t('common.dark'), value: 'dark' satisfies ThemeMode }]} /></Form.Item>
+                      <Form.Item
+                        name="gpu_refresh_interval_seconds"
+                        label={t('settings.gpuRefreshInterval')}
+                        extra={t('settings.gpuRefreshIntervalHint')}
+                        rules={[{
+                          validator: (_, value) => Number.isInteger(value) && (value === 0 || (value >= 2 && value <= 3600))
+                            ? Promise.resolve()
+                            : Promise.reject(new Error(t('settings.gpuRefreshIntervalInvalid'))),
+                        }]}
+                      >
+                        <InputNumber min={0} max={3600} precision={0} step={1} addonAfter={t('settings.gpuRefreshSecondsUnit')} className="full-width" />
+                      </Form.Item>
                       <Form.Item name="experimental_enabled" label={t('settings.userExperimental')} valuePropName="checked"><Switch disabled={!(settings.data?.experimental_allowed ?? me.data?.experimental_available)} /></Form.Item>
                       <Button type="primary" icon={<SaveOutlined />} loading={updatePreferences.isPending} onClick={() => void savePreferences()}>{t('common.save')}</Button>
                     </Form>

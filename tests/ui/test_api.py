@@ -56,7 +56,9 @@ def test_personal_setup_templates_and_preferences(tmp_path: Path) -> None:
             json={"mode": "personal", "username": "admin", "display_name": "Admin", "password": ""},
         )
         assert response.status_code == 200
-        assert client.get("/api/v1/auth/me").json()["deployment_mode"] == "personal"
+        me = client.get("/api/v1/auth/me").json()
+        assert me["deployment_mode"] == "personal"
+        assert me["user"]["gpu_refresh_interval_seconds"] == 5
 
         created = client.post(
             "/api/v1/templates",
@@ -70,11 +72,27 @@ def test_personal_setup_templates_and_preferences(tmp_path: Path) -> None:
 
         updated = client.patch(
             "/api/v1/users/me/preferences",
-            json={"language": "en-US", "theme": "dark"},
+            json={"language": "en-US", "theme": "dark", "gpu_refresh_interval_seconds": 30},
         )
         assert updated.status_code == 200
         assert updated.json()["language"] == "en-US"
         assert updated.json()["theme"] == "dark"
+        assert updated.json()["gpu_refresh_interval_seconds"] == 30
+        assert client.get("/api/v1/auth/me").json()["user"]["gpu_refresh_interval_seconds"] == 30
+        assert client.patch(
+            "/api/v1/users/me/preferences",
+            json={"gpu_refresh_interval_seconds": -1},
+        ).status_code == 422
+        assert client.patch(
+            "/api/v1/users/me/preferences",
+            json={"gpu_refresh_interval_seconds": 1},
+        ).status_code == 422
+        manual = client.patch(
+            "/api/v1/users/me/preferences",
+            json={"gpu_refresh_interval_seconds": 0},
+        )
+        assert manual.status_code == 200
+        assert manual.json()["gpu_refresh_interval_seconds"] == 0
 
 
 def _make_lerobot_v2_dataset(root: Path) -> Path:
@@ -269,6 +287,59 @@ def test_ssh_settings_save_ignores_unchanged_missing_default_dataset_root(tmp_pa
         )
         assert changed_missing_root.status_code == 422
         assert changed_missing_root.json()["detail"]["code"] == "dataset_root_unavailable"
+
+
+def test_dashboard_storage_path_can_be_configured_independently(tmp_path: Path) -> None:
+    with TestClient(make_app(tmp_path)) as client:
+        client.post(
+            "/api/v1/setup",
+            json={"mode": "personal", "username": "admin", "display_name": "Admin", "password": ""},
+        )
+        first_results = tmp_path / "results-primary"
+        monitored = tmp_path / "monitored-volume" / "nested"
+        first_results.mkdir()
+        monitored.mkdir(parents=True)
+
+        defaults = client.patch(
+            "/api/v1/settings",
+            json={"results_roots": [str(first_results)]},
+        )
+        assert defaults.status_code == 200
+        assert client.get("/api/v1/storage").json()[0]["path"] == str(first_results)
+
+        configured = client.patch(
+            "/api/v1/settings",
+            json={"storage_monitor_path": str(monitored)},
+        )
+        assert configured.status_code == 200
+        assert configured.json()["storage_monitor_path"] == str(monitored)
+        storage = client.get("/api/v1/storage").json()
+        assert len(storage) == 1
+        assert storage[0]["path"] == str(monitored)
+        assert storage[0]["mount_point"]
+        assert storage[0]["total_bytes"] > 0
+        assert client.get("/api/v1/dashboard").json()["storage"][0]["path"] == str(monitored)
+
+        missing = client.patch(
+            "/api/v1/settings",
+            json={"storage_monitor_path": str(tmp_path / "missing")},
+        )
+        assert missing.status_code == 422
+        assert missing.json()["detail"]["code"] == "storage_monitor_path_not_found"
+
+        file_path = tmp_path / "not-a-directory"
+        file_path.write_text("file")
+        not_directory = client.patch(
+            "/api/v1/settings",
+            json={"storage_monitor_path": str(file_path)},
+        )
+        assert not_directory.status_code == 422
+        assert not_directory.json()["detail"]["code"] == "storage_monitor_path_not_directory"
+
+        cleared = client.patch("/api/v1/settings", json={"storage_monitor_path": ""})
+        assert cleared.status_code == 200
+        assert cleared.json()["storage_monitor_path"] == ""
+        assert client.get("/api/v1/storage").json()[0]["path"] == str(first_results)
 
 
 def test_current_administrator_cannot_lock_out_own_account(tmp_path: Path) -> None:

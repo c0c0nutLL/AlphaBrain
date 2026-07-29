@@ -198,7 +198,15 @@ class UserUpdate(APIModel):
 class PreferenceUpdate(APIModel):
     language: Literal["zh-CN", "en-US"] | None = None
     theme: Literal["light", "dark"] | None = None
+    gpu_refresh_interval_seconds: int | None = Field(default=None, ge=0, le=3600)
     experimental_enabled: bool | None = None
+
+    @field_validator("gpu_refresh_interval_seconds")
+    @classmethod
+    def valid_gpu_refresh_interval(cls, value: int | None) -> int | None:
+        if value is not None and value != 0 and value < 2:
+            raise ValueError("gpu_refresh_interval_must_be_zero_or_at_least_two_seconds")
+        return value
 
 
 class UserOut(APIModel):
@@ -208,6 +216,7 @@ class UserOut(APIModel):
     role: str
     language: str
     theme: str
+    gpu_refresh_interval_seconds: int
     experimental_enabled: bool
     is_active: bool
     created_at: datetime
@@ -218,6 +227,7 @@ class SettingsUpdate(APIModel):
     experimental_globally_enabled: bool | None = None
     environment: dict[str, str] | None = None
     results_roots: list[str] | None = None
+    storage_monitor_path: str | None = Field(default=None, max_length=4096)
     dataset_roots: list[str] | None = None
     managed_dataset_root: str | None = Field(default=None, max_length=4096)
     pretrained_root: str | None = Field(default=None, max_length=4096)

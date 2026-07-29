@@ -29,6 +29,7 @@ export interface User {
   active?: boolean;
   locale?: Language;
   theme?: ThemeMode;
+  gpu_refresh_interval_seconds?: number;
   experimental_enabled?: boolean;
   experimental_available?: boolean;
   deployment_mode?: 'personal' | 'laboratory';
@@ -50,6 +51,7 @@ export interface GPU {
 
 export interface StorageSummary {
   path: string;
+  mount_point?: string;
   used_bytes: number;
   total_bytes: number;
   free_bytes: number;
@@ -1234,6 +1236,7 @@ export interface SystemSettings {
   results_roots?: string[];
   /** Compatibility alias for older forms; new UI uses `results_roots`. */
   results_root?: string;
+  storage_monitor_path?: string;
   dataset_roots?: string[];
   managed_dataset_root?: string;
   pretrained_root?: string;

@@ -1031,6 +1031,18 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         values["secure_cookies_locked"] = bool(runtime.secure_cookies)
         return values
 
+    def configured_storage_monitor_path(settings: SettingsService) -> Path:
+        """Resolve the dashboard storage target, preserving the old default."""
+
+        configured = str(settings.get("storage_monitor_path", "") or "").strip()
+        if not configured:
+            results_roots = settings.get("results_roots", ["results"])
+            configured = str(results_roots[0]) if isinstance(results_roots, list) and results_roots else "results"
+        path = Path(configured).expanduser()
+        if not path.is_absolute():
+            path = runtime.repo_root / path
+        return path.resolve(strict=False)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await manager.start()
@@ -1509,6 +1521,33 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
                     status_code=422,
                     detail={"code": "results_roots_unavailable", "items": invalid_roots},
                 )
+        if "storage_monitor_path" in values:
+            configured = str(values["storage_monitor_path"] or "").strip()
+            if not configured:
+                values["storage_monitor_path"] = ""
+            else:
+                path = Path(configured).expanduser()
+                if not path.is_absolute():
+                    path = runtime.repo_root / path
+                path = path.resolve(strict=False)
+                if not path.exists():
+                    raise HTTPException(
+                        status_code=422,
+                        detail={"code": "storage_monitor_path_not_found", "path": str(path)},
+                    )
+                if not path.is_dir():
+                    raise HTTPException(
+                        status_code=422,
+                        detail={"code": "storage_monitor_path_not_directory", "path": str(path)},
+                    )
+                try:
+                    shutil.disk_usage(path)
+                except OSError as exc:
+                    raise HTTPException(
+                        status_code=422,
+                        detail={"code": "storage_monitor_path_unavailable", "path": str(path)},
+                    ) from exc
+                values["storage_monitor_path"] = str(path)
         dataset_roots = values.get("dataset_roots")
         if dataset_roots is not None:
             current_dataset_roots = current_settings.get("dataset_roots", ["data"])
@@ -4569,19 +4608,13 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
     @app.get("/api/v1/storage")
     def storage(_user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[dict[str, Any]]:
         settings = SettingsService(db)
-        rows = []
-        for value in settings.get("results_roots", ["results"]):
-            path = Path(value).expanduser()
-            if not path.is_absolute():
-                path = runtime.repo_root / path
-            rows.append(
-                storage_snapshot(
-                    path,
-                    float(settings.get("disk_min_free_gib", 100)),
-                    float(settings.get("disk_min_free_percent", 10)),
-                )
+        return [
+            storage_snapshot(
+                configured_storage_monitor_path(settings),
+                float(settings.get("disk_min_free_gib", 100)),
+                float(settings.get("disk_min_free_percent", 10)),
             )
-        return rows
+        ]
 
     def _builtin_checkpoint_rows(db: Session, user: User) -> list[dict[str, Any]]:
         settings = SettingsService(db)
@@ -5200,18 +5233,13 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         reservations = _gpu_reservations(db)
         settings = SettingsService(db)
         remote_training = RemoteTrainingConfig.from_settings(settings.all())
-        storage_rows = []
-        for value in settings.get("results_roots", ["results"]):
-            path = Path(value).expanduser()
-            if not path.is_absolute():
-                path = runtime.repo_root / path
-            storage_rows.append(
-                storage_snapshot(
-                    path,
-                    float(settings.get("disk_min_free_gib", 100)),
-                    float(settings.get("disk_min_free_percent", 10)),
-                )
+        storage_rows = [
+            storage_snapshot(
+                configured_storage_monitor_path(settings),
+                float(settings.get("disk_min_free_gib", 100)),
+                float(settings.get("disk_min_free_percent", 10)),
             )
+        ]
         return {
             "user": _serialize_user(user),
             "job_counts": counts,

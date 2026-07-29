@@ -185,9 +185,14 @@ def storage_snapshot(path: Path, min_free_gib: float, min_free_percent: float) -
     try:
         path.mkdir(parents=True, exist_ok=True)
         usage = shutil.disk_usage(path)
+        resolved_path = path.resolve(strict=False)
+        mount_point = resolved_path
+        while mount_point.parent != mount_point and not mount_point.is_mount():
+            mount_point = mount_point.parent
     except OSError as exc:
         return {
             "path": str(path),
+            "mount_point": "",
             "total_bytes": 0,
             "used_bytes": 0,
             "free_bytes": 0,
@@ -201,6 +206,7 @@ def storage_snapshot(path: Path, min_free_gib: float, min_free_percent: float) -
     free_gib = usage.free / (1024**3)
     return {
         "path": str(path),
+        "mount_point": str(mount_point),
         "total_bytes": usage.total,
         "used_bytes": usage.used,
         "free_bytes": usage.free,
