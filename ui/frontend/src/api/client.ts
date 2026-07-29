@@ -437,6 +437,7 @@ function normalizeCheckpoint(value: unknown): Checkpoint {
     architecture_fingerprint: stringValue(row.architecture_fingerprint) || undefined,
     best_score: typeof row.best_score === 'number' ? row.best_score : undefined,
     can_delete: Boolean(row.can_delete),
+    can_package: Boolean(row.can_package),
     deployable: typeof row.can_deploy === 'boolean'
       ? row.can_deploy
       : typeof row.deployable === 'boolean' ? row.deployable : undefined,
@@ -1488,6 +1489,13 @@ function settingsPayload(value: Partial<SystemSettings>): Record<string, unknown
 }
 
 export const api = {
+  runtime: async (): Promise<{ demo_mode: boolean; version: string }> => {
+    const row = await request<Record<string, unknown>>('/health');
+    return {
+      demo_mode: Boolean(row.demo_mode),
+      version: stringValue(row.version),
+    };
+  },
   setup: {
     status: async (): Promise<SetupStatus> => {
       const row = await request<Record<string, unknown>>('/setup/status');
@@ -1614,6 +1622,7 @@ export const api = {
     list: (): Promise<UtilityRun[]> => request<UtilityRun[]>('/utilities'),
     cancel: (id: string): Promise<UtilityRun> => request<UtilityRun>(`/utilities/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
     logUrl: (id: string) => `${API_BASE}/utilities/${encodeURIComponent(id)}/log`,
+    outputUrl: (id: string) => `${API_BASE}/utilities/${encodeURIComponent(id)}/output`,
   },
   templates: {
     list: async (): Promise<Template[]> => recordArray(await request<unknown[]>('/templates')).map(normalizeTemplate),
@@ -1673,6 +1682,10 @@ export const api = {
     stop: async (id: string): Promise<Job> => normalizeJob(await request<unknown>(`/jobs/${encodeURIComponent(id)}/stop`, { method: 'POST' })),
     terminate: async (id: string): Promise<Job> => normalizeJob(await request<unknown>(`/jobs/${encodeURIComponent(id)}/terminate`, { method: 'POST' })),
     forceKill: async (id: string): Promise<Job> => normalizeJob(await request<unknown>(`/jobs/${encodeURIComponent(id)}/force-kill`, { method: 'POST' })),
+    package: (id: string): Promise<UtilityRun> =>
+      request<UtilityRun>(`/jobs/${encodeURIComponent(id)}/package`, { method: 'POST' }),
+    remove: (id: string, confirmation: string): Promise<{ ok: boolean }> =>
+      request(`/jobs/${encodeURIComponent(id)}`, { method: 'DELETE', body: body({ confirmation }) }),
     eventUrl: (id: string) => `${API_BASE}/jobs/${encodeURIComponent(id)}/events`,
   },
   workloads: {
@@ -1684,6 +1697,8 @@ export const api = {
     normalizeCheckpointDetail(await request<unknown>(`/checkpoints/${encodeURIComponent(id)}`)),
   mergeLoraCheckpoint: (id: string, payload: { model: string; output_name?: string; resources: { strategy: 'auto' | 'fixed'; gpu_count: number; gpu_ids?: number[] } }): Promise<UtilityRun> =>
     request<UtilityRun>(`/checkpoints/${encodeURIComponent(id)}/merge-lora`, { method: 'POST', body: body(payload) }),
+  packageCheckpoint: (id: string): Promise<UtilityRun> =>
+    request<UtilityRun>(`/checkpoints/${encodeURIComponent(id)}/package`, { method: 'POST' }),
   deleteCheckpoint: (id: string, confirmation: string) => request<void>(`/checkpoints/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     body: body({ confirmation }),

@@ -136,6 +136,9 @@ export interface Workload {
   finished_at?: string;
   error?: string;
   detail_url: string;
+  can_delete?: boolean;
+  can_package?: boolean;
+  package_run?: UtilityRun;
 }
 
 export interface AuditEvent {
@@ -164,6 +167,7 @@ export interface Checkpoint {
   architecture_fingerprint?: string;
   best_score?: number;
   can_delete?: boolean;
+  can_package?: boolean;
   deployable?: boolean;
   builtin?: boolean;
   name_i18n?: Partial<Record<Language, string>>;
@@ -909,6 +913,14 @@ export interface UtilityRun {
   error?: string;
   exit_code?: number;
   queue_position?: number;
+  progress?: {
+    percent: number;
+    phase?: string;
+    current?: number;
+    total?: number;
+    unit?: 'bytes' | 'files' | string;
+    message?: string;
+  };
   queued_at?: string;
   started_at?: string;
   finished_at?: string;
@@ -922,7 +934,9 @@ export interface ResourceRecord {
   installable: boolean;
   registerable?: boolean;
   requires_admin?: boolean;
+  requires_hf_token?: boolean;
   target_path?: string;
+  install_root?: string;
   status: 'installed' | 'missing' | 'unconfigured' | string;
   preprocess?: Array<'t5' | 'reason1' | 'umt5' | 'reason1_projection'>;
   dependencies?: string[];

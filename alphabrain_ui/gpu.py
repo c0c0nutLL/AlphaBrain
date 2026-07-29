@@ -145,6 +145,42 @@ class GPUMonitor:
         return result
 
 
+class DemoGPUMonitor:
+    """Deterministic fake GPUs used only by the explicit local demo mode."""
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    @property
+    def error(self) -> str:
+        return ""
+
+    def snapshot(self, reservations: dict[int, str] | None = None) -> list[GPUInfo]:
+        reservations = reservations or {}
+        total = 24 * 1024**3
+        result: list[GPUInfo] = []
+        for index in range(2):
+            reservation = reservations.get(index)
+            used = (4 + index * 2) * 1024**3 if reservation is None else 10 * 1024**3
+            result.append(
+                GPUInfo(
+                    index=index,
+                    uuid=f"DEMO-GPU-{index}",
+                    name="Demo GPU 24GB (simulated)",
+                    memory_total_bytes=total,
+                    memory_used_bytes=used,
+                    memory_free_bytes=total - used,
+                    utilization_percent=12 + index * 7 if reservation is None else 68,
+                    temperature_c=42 + index,
+                    processes=[],
+                    reserved_by_job_id=reservation,
+                    available=reservation is None,
+                )
+            )
+        return result
+
+
 def storage_snapshot(path: Path, min_free_gib: float, min_free_percent: float) -> dict[str, Any]:
     try:
         path.mkdir(parents=True, exist_ok=True)

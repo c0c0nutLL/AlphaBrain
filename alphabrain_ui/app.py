@@ -64,7 +64,7 @@ from .deployments import (
     DeploymentManager,
     generate_api_key,
 )
-from .gpu import GPUMonitor, storage_snapshot
+from .gpu import DemoGPUMonitor, GPUMonitor, storage_snapshot
 from .inference import (
     InferenceCoordinator,
     InferenceInputError,
@@ -972,7 +972,11 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
     runtime.ensure_directories()
     database = Database(runtime.database_path)
     database.migrate()
-    gpu_monitor = GPUMonitor()
+    if runtime.demo_mode:
+        from .demo import prepare_demo_environment
+
+        prepare_demo_environment(runtime, database)
+    gpu_monitor = DemoGPUMonitor() if runtime.demo_mode else GPUMonitor()
     wandb_secret_store = WandbSecretStore(runtime.state_dir)
     hf_secret_store = HuggingFaceSecretStore(runtime.state_dir)
     registry_overlay_store = RegistryOverlayStore(runtime.state_dir)
@@ -1112,6 +1116,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
             "status": "ok",
             "version": __version__,
             "repo_root": str(runtime.repo_root),
+            "demo_mode": runtime.demo_mode,
             "gpu_monitor": {"available": gpu_monitor.available, "error": gpu_monitor.error},
         }
 
@@ -1481,6 +1486,9 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         for path_key in ("managed_dataset_root", "pretrained_root"):
             if path_key not in values:
                 continue
+            if not str(values[path_key]).strip():
+                values[path_key] = ""
+                continue
             path = Path(str(values[path_key])).expanduser()
             if not path.is_absolute():
                 path = runtime.repo_root / path
@@ -1830,6 +1838,58 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
             roots.append(path.resolve(strict=False))
         return roots or [(runtime.repo_root / "data").resolve(strict=False)]
 
+    packages_root = (runtime.state_dir / "artifacts" / "packages").resolve(strict=False)
+
+    def create_package_run(
+        *,
+        owner_id: str,
+        kind: str,
+        source: Path,
+        label: str,
+        resource_id: str,
+        reference_key: str,
+        reference_id: str,
+        db: Session,
+    ) -> UtilityRun:
+        active_runs = db.execute(
+            select(UtilityRun).where(
+                UtilityRun.kind == kind,
+                UtilityRun.status.in_(UTILITY_ACTIVE_STATUSES | {"queued"}),
+            )
+        ).scalars().all()
+        if any(str((run.parameters or {}).get(reference_key) or "") == reference_id for run in active_runs):
+            raise HTTPException(status_code=409, detail="package_already_active")
+        safe_label = re.sub(r"[^A-Za-z0-9._-]+", "-", label).strip("-.")[:96] or "model"
+        output = packages_root / owner_id / f"{safe_label}-{{run_id}}.zip"
+        temporary = output.parent / f".{output.name}.partial-{{run_id}}"
+        return utility_manager.create_run(
+            owner_id=owner_id,
+            kind=kind,
+            resource_id=resource_id,
+            command=[
+                sys.executable,
+                "-m",
+                "alphabrain_ui.utility_worker",
+                "archive",
+                "--source",
+                str(source),
+                "--output",
+                str(output),
+                "--run-id",
+                "{run_id}",
+                "--progress",
+                "{progress_path}",
+            ],
+            cwd=runtime.repo_root,
+            output_path=str(output),
+            parameters={
+                reference_key: reference_id,
+                "source_name": source.name,
+                "_cleanup_paths": [str(temporary)],
+            },
+            db_session=db,
+        )
+
     def find_dataset(db: Session, user: User, dataset_id: str) -> DatasetRegistration:
         row = db.execute(
             select(DatasetRegistration)
@@ -1879,6 +1939,8 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="resource_not_found")
         if not definition.get("installable"):
             raise HTTPException(status_code=409, detail="resource_not_installable")
+        if definition.get("requires_hf_token") and not hf_secret_store.global_status()["configured"]:
+            raise HTTPException(status_code=409, detail="hf_download_token_required")
         target_value = payload.target_root or definition.get("target_path")
         if not target_value:
             raise HTTPException(status_code=422, detail="resource_target_root_required")
@@ -1908,7 +1970,19 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
             environment=environment,
             cwd=runtime.repo_root,
             output_path=output_path,
-            parameters={"hf_auth": "global"},
+            parameters={
+                "hf_auth": "global",
+                "_cleanup_paths": [
+                    str(
+                        (
+                            Path(output_path).parent / f".{Path(output_path).name}.partial-{{run_id}}"
+                        )
+                        if resource_id.startswith("pretrained.")
+                        else Path(output_path) / ".libero.partial-{run_id}"
+                    )
+                ],
+            },
+            db_session=db,
         )
         add_audit(db, "resource.install", actor_id=admin.id, target_type="resource", target_id=resource_id, detail={"run_id": run.id})
         return serialize_utility(run)
@@ -2051,6 +2125,28 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         if logs_root not in path.parents or not path.is_file():
             raise HTTPException(status_code=404, detail="utility_log_not_found")
         return FileResponse(path, media_type="text/plain", filename=f"utility-{run.id}.log")
+
+    @app.get("/api/v1/utilities/{run_id}/output")
+    def get_utility_output(
+        run_id: str,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> Response:
+        run = db.get(UtilityRun, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="utility_not_found")
+        assert_owner_or_admin(user, run.owner_id)
+        if run.kind not in {"checkpoint_package", "training_package"}:
+            raise HTTPException(status_code=409, detail="utility_output_not_downloadable")
+        if run.status != "completed":
+            raise HTTPException(status_code=409, detail="utility_output_not_ready")
+        try:
+            path = Path(run.output_path).resolve(strict=True)
+        except OSError as exc:
+            raise HTTPException(status_code=404, detail="utility_output_not_found") from exc
+        if path.is_symlink() or not path.is_file() or not path.is_relative_to(packages_root):
+            raise HTTPException(status_code=403, detail="utility_output_outside_package_root")
+        return FileResponse(path, media_type="application/zip", filename=path.name)
 
     @app.get("/api/v1/datasets")
     def list_registered_datasets(
@@ -2391,6 +2487,10 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         user: User,
         db: Session,
     ) -> tuple[dict[str, Any], str, list[dict[str, Any]], list[dict[str, Any]]]:
+        if runtime.demo_mode:
+            from .demo import demo_experiment_preflight
+
+            return demo_experiment_preflight(runtime, payload)
         settings = SettingsService(db)
         effective_spec = json.loads(json.dumps(payload.spec))
         dataset_spec = effective_spec.get("dataset") if isinstance(effective_spec.get("dataset"), dict) else {}
@@ -2609,15 +2709,20 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
 
         experiment_id = new_id()
         settings = SettingsService(db)
-        stages = build_launch_plan(
-            runtime.repo_root,
-            runtime.state_dir,
-            payload.name,
-            resolved,
-            snapshot_key=experiment_id,
-            environment=settings.get("environment", {}),
-            write_snapshots=True,
-        )
+        if runtime.demo_mode:
+            from .demo import demo_launch_plan
+
+            stages = demo_launch_plan(runtime, payload, resolved, experiment_id)
+        else:
+            stages = build_launch_plan(
+                runtime.repo_root,
+                runtime.state_dir,
+                payload.name,
+                resolved,
+                snapshot_key=experiment_id,
+                environment=settings.get("environment", {}),
+                write_snapshots=True,
+            )
         experiment = Experiment(
             id=experiment_id,
             owner_id=user.id,
@@ -2735,7 +2840,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         workload_status: str | None = Query(None, alias="status"),
         kind: str | None = Query(None),
         limit: int = Query(300, ge=1, le=1000),
-        _user: User = Depends(current_user),
+        user: User = Depends(current_user),
         db: Session = Depends(get_db),
     ) -> list[dict[str, Any]]:
         global_positions = _queue_positions(db)
@@ -2756,6 +2861,20 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
             )
 
         if kind in {None, "training"}:
+            non_terminal_experiment_ids = set(
+                db.execute(
+                    select(Job.experiment_id).where(Job.status.notin_(TERMINAL_STATUSES))
+                ).scalars().all()
+            )
+            latest_packages: dict[str, UtilityRun] = {}
+            for package_run in db.execute(
+                select(UtilityRun)
+                .where(UtilityRun.kind == "training_package")
+                .order_by(UtilityRun.created_at.desc())
+            ).scalars().all():
+                packaged_job_id = str((package_run.parameters or {}).get("job_id") or "")
+                if packaged_job_id and packaged_job_id not in latest_packages:
+                    latest_packages[packaged_job_id] = package_run
             rows = db.execute(
                 select(Job)
                 .options(selectinload(Job.owner), selectinload(Job.experiment), selectinload(Job.stage))
@@ -2781,6 +2900,19 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
                         "finished_at": row.finished_at,
                         "error": row.error,
                         "detail_url": f"/jobs/{row.id}",
+                        "can_delete": (
+                            row.experiment_id not in non_terminal_experiment_ids
+                            and (user.role == "administrator" or user.id == row.owner_id)
+                        ),
+                        "can_package": (
+                            row.status in TERMINAL_STATUSES
+                            and (user.role == "administrator" or user.id == row.owner_id)
+                        ),
+                        "package_run": (
+                            serialize_utility(latest_packages[row.id])
+                            if row.id in latest_packages
+                            else None
+                        ),
                     }
                 )
         if kind in {None, "deployment"}:
@@ -2876,6 +3008,83 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
     def job_detail(job_id: str, _user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
         job = _get_job(db, job_id)
         return _serialize_job(job, _job_queue_positions(db).get(job.id))
+
+    @app.delete("/api/v1/jobs/{job_id}")
+    def delete_job(
+        job_id: str,
+        payload: DeleteRequest,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, bool]:
+        job = _get_job(db, job_id)
+        experiment = _get_experiment(db, job.experiment_id)
+        assert_owner_or_admin(user, experiment.owner_id)
+        if payload.confirmation != experiment.name:
+            raise HTTPException(status_code=422, detail="confirmation_does_not_match_training_name")
+        if any(
+            stage_job.status not in TERMINAL_STATUSES
+            for stage in experiment.stages
+            for stage_job in stage.jobs
+        ):
+            raise HTTPException(status_code=409, detail="training_must_be_terminal_before_delete")
+        add_audit(
+            db,
+            "training.delete",
+            actor_id=user.id,
+            target_type="experiment",
+            target_id=experiment.id,
+            detail={"job_id": job_id},
+        )
+        db.delete(experiment)
+        return {"ok": True}
+
+    @app.post("/api/v1/jobs/{job_id}/package")
+    def package_training(
+        job_id: str,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        job = _get_job(db, job_id)
+        experiment = _get_experiment(db, job.experiment_id)
+        assert_owner_or_admin(user, experiment.owner_id)
+        if job.status not in TERMINAL_STATUSES:
+            raise HTTPException(status_code=409, detail="training_must_be_terminal_before_package")
+        raw_source = Path(job.output_dir)
+        if raw_source.is_symlink():
+            raise HTTPException(status_code=409, detail="training_output_invalid")
+        try:
+            source = raw_source.resolve(strict=True)
+        except OSError as exc:
+            raise HTTPException(status_code=404, detail="training_output_not_found") from exc
+        if not source.is_dir():
+            raise HTTPException(status_code=409, detail="training_output_invalid")
+        configured_roots = []
+        for value in SettingsService(db).get("results_roots", ["results"]):
+            root = Path(str(value)).expanduser()
+            if not root.is_absolute():
+                root = runtime.repo_root / root
+            configured_roots.append(root.resolve(strict=False))
+        if not any(source != root and source.is_relative_to(root) for root in configured_roots):
+            raise HTTPException(status_code=403, detail="training_output_outside_results_roots")
+        run = create_package_run(
+            owner_id=user.id,
+            kind="training_package",
+            source=source,
+            label=experiment.name,
+            resource_id=job.id,
+            reference_key="job_id",
+            reference_id=job.id,
+            db=db,
+        )
+        add_audit(
+            db,
+            "training.package",
+            actor_id=user.id,
+            target_type="job",
+            target_id=job.id,
+            detail={"utility_run_id": run.id},
+        )
+        return serialize_utility(run)
 
     @app.post("/api/v1/jobs/{job_id}/cancel")
     async def cancel_job(
@@ -3025,6 +3234,10 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         user: User = Depends(current_user),
         db: Session = Depends(get_db),
     ) -> dict[str, Any]:
+        if runtime.demo_mode:
+            from .demo import demo_deployment_preflight
+
+            return demo_deployment_preflight(payload, db)
         return validate_deployment_request(
             payload,
             db=db,
@@ -3040,14 +3253,19 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         user: User = Depends(current_user),
         db: Session = Depends(get_db),
     ) -> dict[str, Any]:
-        preflight = validate_deployment_request(
-            payload,
-            db=db,
-            runtime=runtime,
-            gpu_monitor=gpu_monitor,
-            include_experimental=_can_experimental(db, user),
-            source_catalog=effective_registry_catalog(),
-        )
+        if runtime.demo_mode:
+            from .demo import demo_deployment_preflight
+
+            preflight = demo_deployment_preflight(payload, db)
+        else:
+            preflight = validate_deployment_request(
+                payload,
+                db=db,
+                runtime=runtime,
+                gpu_monitor=gpu_monitor,
+                include_experimental=_can_experimental(db, user),
+                source_catalog=effective_registry_catalog(),
+            )
         if not preflight["ok"]:
             raise HTTPException(
                 status_code=422,
@@ -3325,6 +3543,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         add_audit(db, "deployment.cancel", actor_id=user.id, target_type="deployment", target_id=deployment_id)
+        db.commit()
         db.expire_all()
         return _serialize_deployment(_get_deployment(db, deployment_id))
 
@@ -3342,6 +3561,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         add_audit(db, "deployment.stop", actor_id=user.id, target_type="deployment", target_id=deployment_id)
+        db.commit()
         db.expire_all()
         return _serialize_deployment(_get_deployment(db, deployment_id))
 
@@ -3359,6 +3579,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         add_audit(db, "deployment.restart", actor_id=user.id, target_type="deployment", target_id=deployment_id)
+        db.commit()
         db.expire_all()
         return {"deployment": _serialize_deployment(_get_deployment(db, deployment_id))}
 
@@ -3376,6 +3597,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         add_audit(db, "deployment.rotate_key", actor_id=user.id, target_type="deployment", target_id=deployment_id)
+        db.commit()
         db.expire_all()
         return {"deployment": _serialize_deployment(_get_deployment(db, deployment_id)), "api_key": raw_key}
 
@@ -3500,6 +3722,10 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         weights are never imported or deserialized in the UI process.
         """
 
+        if runtime.demo_mode:
+            from .demo import demo_checkpoint_inspection
+
+            return demo_checkpoint_inspection(payload.checkpoint_id)
         settings = SettingsService(db)
         checkpoint_index = [
             {
@@ -3570,6 +3796,10 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         }
 
     def resolve_evaluation(payload: EvaluationRequest, user: User, db: Session) -> dict[str, Any]:
+        if runtime.demo_mode and payload.kind == "standard":
+            from .demo import demo_evaluation_preflight
+
+            return demo_evaluation_preflight(runtime, payload, db)
         children = expand_evaluation_request(payload)
         resolved_children: list[dict[str, Any]] = []
         child_preflights: list[dict[str, Any]] = []
@@ -4314,6 +4544,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
             deployable = bool(row["complete"] and inspection.get("deployable"))
             row["deployable"] = deployable
             row["can_deploy"] = deployable
+            row["can_package"] = bool(row["complete"] and user.role == "administrator")
             row["inspection_summary"] = {
                 "format": inspection.get("checkpoint", {}).get("format", "unknown"),
                 "checkpoint_family": inspection.get("checkpoint", {}).get("checkpoint_family"),
@@ -4408,6 +4639,10 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
                     and row.path not in referenced_checkpoints
                     and (user.role == "administrator" or experiments[row.experiment_id].owner_id == user.id)
                 ),
+                "can_package": (
+                    row.is_complete
+                    and (user.role == "administrator" or experiments[row.experiment_id].owner_id == user.id)
+                ),
             }
             for row in rows
             if row.experiment_id in experiments
@@ -4479,6 +4714,10 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
             "size_bytes": checkpoint.size_bytes,
             "complete": checkpoint.is_complete,
             "resumable": checkpoint.is_resumable,
+            "can_package": (
+                checkpoint.is_complete
+                and (_user.role == "administrator" or experiment.owner_id == _user.id)
+            ),
             "metadata": checkpoint.metadata_json,
             "created_at": checkpoint.created_at,
             "inspection": inspection,
@@ -4494,6 +4733,76 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
                 },
             },
         }
+
+    @app.post("/api/v1/checkpoints/{checkpoint_id}/package")
+    def package_checkpoint(
+        checkpoint_id: str,
+        user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        if is_builtin_checkpoint_id(checkpoint_id):
+            if user.role != "administrator":
+                raise HTTPException(status_code=403, detail="administrator_required")
+            preset = next(
+                (item for item in _builtin_checkpoint_rows(db, user) if item["id"] == checkpoint_id),
+                None,
+            )
+            if preset is None:
+                raise HTTPException(status_code=404, detail="checkpoint_not_found")
+            raw_source = Path(str(preset["path"]))
+            label = str(preset.get("name") or raw_source.name)
+        else:
+            checkpoint = db.get(Checkpoint, checkpoint_id)
+            if checkpoint is None:
+                raise HTTPException(status_code=404, detail="checkpoint_not_found")
+            experiment = db.get(Experiment, checkpoint.experiment_id)
+            if experiment is None:
+                raise HTTPException(status_code=404, detail="experiment_not_found")
+            assert_owner_or_admin(user, experiment.owner_id)
+            if not checkpoint.is_complete:
+                raise HTTPException(status_code=409, detail="checkpoint_incomplete")
+            job = db.get(Job, checkpoint.job_id) if checkpoint.job_id else None
+            if job is None:
+                raise HTTPException(status_code=409, detail="checkpoint_job_not_found")
+            try:
+                job_root = Path(job.output_dir).resolve(strict=True)
+            except OSError as exc:
+                raise HTTPException(status_code=404, detail="training_output_not_found") from exc
+            raw_source = Path(checkpoint.path)
+            label = f"{experiment.name}-{checkpoint.name}"
+            try:
+                candidate = raw_source.resolve(strict=True)
+            except OSError as exc:
+                raise HTTPException(status_code=404, detail="checkpoint_not_found_on_disk") from exc
+            if not candidate.is_relative_to(job_root):
+                raise HTTPException(status_code=403, detail="checkpoint_outside_job_output")
+        if raw_source.is_symlink():
+            raise HTTPException(status_code=409, detail="checkpoint_source_invalid")
+        try:
+            source = raw_source.resolve(strict=True)
+        except OSError as exc:
+            raise HTTPException(status_code=404, detail="checkpoint_not_found_on_disk") from exc
+        if not (source.is_file() or source.is_dir()):
+            raise HTTPException(status_code=409, detail="checkpoint_source_invalid")
+        run = create_package_run(
+            owner_id=user.id,
+            kind="checkpoint_package",
+            source=source,
+            label=label,
+            resource_id=checkpoint_id,
+            reference_key="checkpoint_id",
+            reference_id=checkpoint_id,
+            db=db,
+        )
+        add_audit(
+            db,
+            "checkpoint.package",
+            actor_id=user.id,
+            target_type="checkpoint",
+            target_id=checkpoint_id,
+            detail={"utility_run_id": run.id},
+        )
+        return serialize_utility(run)
 
     @app.post("/api/v1/checkpoints/{checkpoint_id}/merge-lora")
     def merge_lora_checkpoint(

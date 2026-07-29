@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import json
 import stat
+import sys
 import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from alphabrain_ui.app import create_app
+from alphabrain_ui.database import UtilityRun
 from alphabrain_ui.runtime import RuntimeConfig
 from alphabrain_ui.secrets import HuggingFaceSecretStore, SecureSecretStore
+from alphabrain_ui.utility_worker import _safe_hf_etag
 
 
 def make_app(tmp_path: Path):
@@ -96,10 +99,18 @@ def test_resource_inventory_hf_status_and_world_model_registration(tmp_path: Pat
         setup(client)
         inventory = client.get("/api/v1/resources")
         assert inventory.status_code == 200
-        ids = {item["id"] for item in inventory.json()["items"]}
+        items = {item["id"]: item for item in inventory.json()["items"]}
+        ids = set(items)
         assert "pretrained.Qwen2.5-VL-3B-Instruct" in ids
         assert "dataset.libero" in ids
         assert "world_model.cosmos_predict2" in ids
+        assert items["pretrained.paligemma-3b-pt-224"]["requires_hf_token"] is True
+        gated = client.post(
+            "/api/v1/resources/pretrained.paligemma-3b-pt-224/install",
+            json={"target_root": str(tmp_path / "models")},
+        )
+        assert gated.status_code == 409
+        assert gated.json()["detail"] == "hf_download_token_required"
 
         token = client.put(
             "/api/v1/settings/huggingface/download-token", json={"token": "hf_download_123"}
@@ -112,6 +123,61 @@ def test_resource_inventory_hf_status_and_world_model_registration(tmp_path: Pat
         )
         assert registered.status_code == 200
         assert registered.json()["status"] == "installed"
+
+
+def test_huggingface_etag_is_safe_for_windows_cache_paths() -> None:
+    assert _safe_hf_etag('"abc:*?<>|/\\def"') == "_abc________def_"
+
+
+def test_resource_install_creates_background_run_and_cancel_cleans_partial_files(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    def fake_install_command(resource_id: str, *, repo_root: Path, target_root: Path):
+        del repo_root
+        name = resource_id.removeprefix("pretrained.")
+        output = target_root / name
+        return [sys.executable, "-c", "import time; time.sleep(30)"], {}, str(output)
+
+    monkeypatch.setattr("alphabrain_ui.app.install_command", fake_install_command)
+    app = make_app(tmp_path)
+    with TestClient(app) as client:
+        setup(client)
+        target_root = tmp_path / "models"
+        created = client.post(
+            "/api/v1/resources/pretrained.Qwen2.5-VL-3B-Instruct/install",
+            json={"target_root": str(target_root)},
+        )
+        assert created.status_code == 200, created.text
+        run_id = created.json()["id"]
+        with app.state.database.session() as db:
+            run = db.get(UtilityRun, run_id)
+            assert run is not None
+            partial = Path(run.parameters["_cleanup_paths"][0])
+        partial.mkdir(parents=True)
+        (partial / "partial.bin").write_bytes(b"incomplete")
+
+        cancelled = client.post(f"/api/v1/utilities/{run_id}/cancel")
+        assert cancelled.status_code == 200, cancelled.text
+        assert cancelled.json()["status"] in {"cancelled", "stopped"}
+        assert not partial.exists()
+        resource = next(
+            item for item in client.get("/api/v1/resources").json()["items"]
+            if item["id"] == "pretrained.Qwen2.5-VL-3B-Instruct"
+        )
+        assert resource["install_root"] == str(target_root)
+        assert resource["target_path"] == str(target_root / "Qwen2.5-VL-3B-Instruct")
+        cleared = client.patch(
+            "/api/v1/settings",
+            json={"pretrained_root": "", "environment": {}},
+        )
+        assert cleared.status_code == 200
+        assert cleared.json()["pretrained_root"] == ""
+        resource = next(
+            item for item in client.get("/api/v1/resources").json()["items"]
+            if item["id"] == "pretrained.Qwen2.5-VL-3B-Instruct"
+        )
+        assert resource["status"] == "unconfigured"
 
 
 def test_dataset_registration_preview_mixture_and_stats(tmp_path: Path) -> None:

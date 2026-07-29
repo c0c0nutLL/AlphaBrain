@@ -33,6 +33,12 @@ from .deployment_registry import build_adapter_command, get_deployment_catalog
 from .evaluation_registry import get_benchmark
 from .gpu import GPUMonitor
 from .preflight import read_dotenv
+from .process_control import (
+    FORCE_KILL_SIGNAL,
+    new_process_group_kwargs,
+    process_group_matches,
+    signal_process_group,
+)
 from .runtime import RuntimeConfig
 from .schemas import EvaluationResultV1, EvaluationResultV2
 from .secrets import SecureSecretStore
@@ -801,7 +807,17 @@ class EvaluationManager:
             try:
                 output_dir.mkdir(parents=True, exist_ok=False)
                 direct = evaluation.evaluation_kind in SPECIALIZED_EVALUATION_KINDS
-                if direct:
+                if self.config.demo_mode:
+                    config_value = {
+                        "kind": evaluation.evaluation_kind,
+                        "benchmark": evaluation.benchmark_id,
+                        "checkpoint": evaluation.checkpoint_path,
+                        "suite": evaluation.suite,
+                        "parameters": dict(evaluation.parameters or {}),
+                        "gpu_ids": list(evaluation.assigned_gpu_ids or []),
+                        "demo": True,
+                    }
+                elif direct:
                     config_value = {
                         "kind": evaluation.evaluation_kind,
                         "checkpoint": evaluation.checkpoint_path,
@@ -815,7 +831,28 @@ class EvaluationManager:
                     )
                 _atomic_yaml(Path(evaluation.config_path), config_value)
                 Path(evaluation.config_path).chmod(0o444)
-                if direct:
+                if self.config.demo_mode:
+                    command = [
+                        model_python,
+                        "-m",
+                        "alphabrain_ui.demo_worker",
+                        "evaluate",
+                        "--result-path",
+                        evaluation.result_path,
+                        "--progress-path",
+                        evaluation.progress_path,
+                        "--schema-version",
+                        evaluation.result_schema_version,
+                        "--kind",
+                        evaluation.evaluation_kind,
+                        "--benchmark",
+                        evaluation.benchmark_id,
+                        "--checkpoint",
+                        evaluation.checkpoint_path,
+                        "--suite",
+                        evaluation.suite,
+                    ]
+                elif direct:
                     command = [
                         model_python,
                         "-m",
@@ -897,7 +934,7 @@ class EvaluationManager:
                     stdin=asyncio.subprocess.DEVNULL,
                     stdout=log_handle,
                     stderr=asyncio.subprocess.STDOUT,
-                    start_new_session=True,
+                    **new_process_group_kwargs(),
                 )
             except FileExistsError:
                 if log_handle is not None:
@@ -996,7 +1033,7 @@ class EvaluationManager:
             process = psutil.Process(pid)
             if created_at is not None and abs(process.create_time() - created_at) > 1:
                 return False
-            if os.getpgid(pid) != pgid:
+            if not process_group_matches(pid, pgid):
                 return False
             return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
         except (OSError, psutil.Error):
@@ -1075,7 +1112,7 @@ class EvaluationManager:
             ):
                 return
             with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(pgid, signal.SIGKILL)
+                signal_process_group(pid, pgid, FORCE_KILL_SIGNAL)
 
     def _remaining_grace_period(self, evaluation: EvaluationRun) -> float:
         if evaluation.stop_requested_at is None:
@@ -1300,7 +1337,7 @@ class EvaluationManager:
                     evaluation_id, pid=pid, pgid=pgid, created_at=created_at
                 )
             try:
-                os.killpg(pgid, signal.SIGKILL if force else signal.SIGTERM)
+                signal_process_group(pid, pgid, FORCE_KILL_SIGNAL if force else signal.SIGTERM)
             except ProcessLookupError:
                 self._cancel_escalation(evaluation_id)
                 with self.database.session() as db:
@@ -1405,7 +1442,7 @@ class EvaluationManager:
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.DEVNULL,
-                    start_new_session=True,
+                    **new_process_group_kwargs(),
                 )
                 stdout, _stderr = await asyncio.wait_for(
                     process.communicate(json.dumps(worker_payload, ensure_ascii=False).encode("utf-8")),
@@ -1426,7 +1463,7 @@ class EvaluationManager:
             except asyncio.CancelledError:
                 if process is not None and process.returncode is None:
                     with contextlib.suppress(ProcessLookupError, PermissionError):
-                        os.killpg(process.pid, signal.SIGKILL)
+                        signal_process_group(process.pid, process.pid, FORCE_KILL_SIGNAL)
                     with contextlib.suppress(Exception):
                         await process.wait()
                 with self.database.session() as db:
@@ -1437,7 +1474,7 @@ class EvaluationManager:
             except Exception as error:
                 if process is not None and process.returncode is None:
                     with contextlib.suppress(ProcessLookupError, PermissionError):
-                        os.killpg(process.pid, signal.SIGKILL)
+                        signal_process_group(process.pid, process.pid, FORCE_KILL_SIGNAL)
                     with contextlib.suppress(Exception):
                         await process.wait()
                 safe_error = type(error).__name__

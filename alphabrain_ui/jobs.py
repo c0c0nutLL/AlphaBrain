@@ -25,6 +25,7 @@ from .database import (
     utcnow,
 )
 from .gpu import GPUMonitor
+from .process_control import FORCE_KILL_SIGNAL, new_process_group_kwargs, process_group_matches, signal_process_group
 from .runtime import RuntimeConfig
 from .wandb import WANDB_API_KEY_ENV, WANDB_CATEGORIES_ENV, WandbSecretStore
 
@@ -451,7 +452,7 @@ class JobManager:
                     stdin=asyncio.subprocess.DEVNULL,
                     stdout=log_handle,
                     stderr=asyncio.subprocess.STDOUT,
-                    start_new_session=True,
+                    **new_process_group_kwargs(),
                 )
             except Exception as exc:
                 if log_handle is not None:
@@ -539,7 +540,7 @@ class JobManager:
             process = psutil.Process(job.pid)
             if job.process_created_at is not None and abs(process.create_time() - job.process_created_at) > 1:
                 return False
-            if job.pgid is not None and os.getpgid(job.pid) != job.pgid:
+            if job.pgid is not None and not process_group_matches(job.pid, job.pgid):
                 return False
             return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
         except (OSError, psutil.Error):
@@ -606,7 +607,7 @@ class JobManager:
                     self._refresh_experiment_statuses(db)
                     return job
                 try:
-                    os.killpg(job.pgid, sig)
+                    signal_process_group(job.pid, job.pgid, sig)
                 except ProcessLookupError:
                     job.status = "interrupted"
                     job.error = job.error or "The recorded process no longer exists."
@@ -625,7 +626,7 @@ class JobManager:
         return await self.signal(job_id, signal.SIGTERM)
 
     async def force_kill(self, job_id: str) -> Job:
-        return await self.signal(job_id, signal.SIGKILL)
+        return await self.signal(job_id, FORCE_KILL_SIGNAL)
 
     def refresh_checkpoints(self, experiment_id: str | None = None) -> None:
         """Discover checkpoints without waiting for the training job to end."""

@@ -26,6 +26,12 @@ from .database import (
 from .deployment_registry import build_adapter_command
 from .gpu import GPUMonitor
 from .preflight import read_dotenv
+from .process_control import (
+    FORCE_KILL_SIGNAL,
+    new_process_group_kwargs,
+    process_group_matches,
+    signal_process_group,
+)
 from .runtime import RuntimeConfig
 from .secrets import SecureSecretStore
 from .services import SettingsService
@@ -265,6 +271,32 @@ class DeploymentManager:
             char not in "0123456789abcdefABCDEF" for char in deployment.api_key_hash
         ):
             raise DeploymentCommandError("Deployment authentication is not configured.")
+        if self.config.demo_mode:
+            command = [
+                python,
+                "-m",
+                "alphabrain_ui.demo_worker",
+                "serve",
+                "--host",
+                deployment.bind_host,
+                "--port",
+                str(int(deployment.port or 0)),
+                "--deployment-id",
+                deployment.id,
+                "--checkpoint",
+                deployment.checkpoint_path,
+                "--idle-timeout",
+                str(deployment.idle_timeout_seconds),
+                "--api-key-sha256",
+                deployment.api_key_hash,
+            ]
+            persisted = [*command[:-1], "[REDACTED]"]
+            controller_key = self.controller_key(deployment.id)
+            if controller_key:
+                digest = hashlib.sha256(controller_key.encode("utf-8")).hexdigest()
+                command.extend(["--controller-api-key-sha256", digest])
+                persisted.extend(["--controller-api-key-sha256", "[REDACTED]"])
+            return command, persisted, 15
 
         parameters = {
             str(key): value
@@ -370,7 +402,7 @@ class DeploymentManager:
                     stdin=asyncio.subprocess.DEVNULL,
                     stdout=log_handle,
                     stderr=asyncio.subprocess.STDOUT,
-                    start_new_session=True,
+                    **new_process_group_kwargs(),
                 )
             except Exception:
                 if log_handle is not None:
@@ -419,7 +451,7 @@ class DeploymentManager:
             process = psutil.Process(pid)
             if created_at is not None and abs(process.create_time() - created_at) > 1:
                 return False
-            if os.getpgid(pid) != pgid:
+            if not process_group_matches(pid, pgid):
                 return False
             return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
         except (OSError, psutil.Error):
@@ -483,7 +515,7 @@ class DeploymentManager:
             if not self._process_matches_identity(pid, pgid, created_at):
                 return
             try:
-                os.killpg(pgid, signal.SIGKILL)
+                signal_process_group(pid, pgid, FORCE_KILL_SIGNAL)
             except (ProcessLookupError, PermissionError):
                 return
 
@@ -543,7 +575,7 @@ class DeploymentManager:
                         if deployment:
                             deployment.error = f"Model server did not become healthy within {startup_timeout}s"
                     with contextlib.suppress(ProcessLookupError):
-                        os.killpg(process.pid, signal.SIGTERM)
+                        signal_process_group(process.pid, process.pid, signal.SIGTERM)
                     with self.database.session() as db:
                         deployment = db.get(ModelDeployment, deployment_id)
                         created_at = deployment.process_created_at if deployment else None
@@ -774,6 +806,14 @@ class DeploymentManager:
                 self._clear_restart_intent(deployment)
                 deployment.stop_requested_at = utcnow()
                 deployment.status = "stopping"
+                if self.config.demo_mode:
+                    # The demo child has no external resources to drain. Mark
+                    # it stopped before signalling so a Windows process-exit
+                    # callback cannot race the API response for the SQLite
+                    # write lock.
+                    deployment.status = "stopped"
+                    deployment.finished_at = utcnow()
+                    self._release_reservations(db, deployment.id)
                 signal_spec = (
                     int(deployment.pid),
                     int(deployment.pgid),
@@ -783,7 +823,7 @@ class DeploymentManager:
             assert signal_spec is not None and previous_state is not None
             pid, pgid, created_at = signal_spec
             escalation_created = False
-            if not force:
+            if not force and not self.config.demo_mode:
                 escalation_created = self._schedule_escalation(
                     deployment_id,
                     pid=pid,
@@ -791,7 +831,7 @@ class DeploymentManager:
                     created_at=created_at,
                 )
             try:
-                os.killpg(pgid, signal.SIGKILL if force else signal.SIGTERM)
+                signal_process_group(pid, pgid, FORCE_KILL_SIGNAL if force else signal.SIGTERM)
             except ProcessLookupError:
                 self._cancel_escalation(deployment_id)
                 with self.database.session() as db:
@@ -877,7 +917,7 @@ class DeploymentManager:
                     created_at=created_at,
                 )
                 try:
-                    os.killpg(pgid, signal.SIGTERM)
+                    signal_process_group(pid, pgid, signal.SIGTERM)
                 except ProcessLookupError:
                     self._cancel_escalation(deployment_id)
                     should_spawn = False
@@ -961,7 +1001,7 @@ class DeploymentManager:
                     created_at=created_at,
                 )
                 try:
-                    os.killpg(pgid, signal.SIGTERM)
+                    signal_process_group(pid, pgid, signal.SIGTERM)
                 except ProcessLookupError:
                     self._cancel_escalation(deployment_id)
                     should_spawn = False

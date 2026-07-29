@@ -1,4 +1,4 @@
-import { ArrowLeftOutlined, CloudUploadOutlined, MergeCellsOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, CloudUploadOutlined, DownloadOutlined, FileZipOutlined, MergeCellsOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -11,6 +11,7 @@ import {
   Modal,
   Row,
   Select,
+  Space,
   Switch,
   Table,
   Tag,
@@ -25,6 +26,7 @@ import { api, listFrom } from '../api/client';
 import type { ModelPublication } from '../api/types';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
+import { UtilityProgress } from '../components/UtilityProgress';
 
 interface PublishValues {
   repo_id: string;
@@ -49,6 +51,7 @@ export function CheckpointDetailPage() {
   const [mergeForm] = Form.useForm<MergeValues>();
   const checkpoint = useQuery({ queryKey: ['checkpoint', checkpointId], queryFn: () => api.checkpointDetail(checkpointId), enabled: Boolean(checkpointId) });
   const publications = useQuery({ queryKey: ['model-publications', checkpointId], queryFn: () => api.publications.list(checkpointId), enabled: Boolean(checkpointId), refetchInterval: 10_000 });
+  const utilities = useQuery({ queryKey: ['utilities'], queryFn: api.utilities.list, refetchInterval: 2_000 });
   const gpus = useQuery({ queryKey: ['gpus'], queryFn: api.gpus, refetchInterval: 10_000 });
   const visibleGpus = listFrom(gpus.data);
   const mergeModels = checkpoint.data?.tools.merge_lora.models ?? [];
@@ -56,6 +59,9 @@ export function CheckpointDetailPage() {
     const path = checkpoint.data?.tools.merge_lora.suggested_output_path;
     return path ? path.split('/').at(-1) : undefined;
   }, [checkpoint.data]);
+  const packageRun = useMemo(() => listFrom(utilities.data).find(
+    (run) => run.kind === 'checkpoint_package' && String(run.parameters?.checkpoint_id ?? '') === checkpointId,
+  ), [checkpointId, utilities.data]);
 
   const publish = useMutation({
     mutationFn: (values: PublishValues) => api.publications.create({ checkpoint_id: checkpointId, ...values }),
@@ -83,6 +89,22 @@ export function CheckpointDetailPage() {
     },
     onError: (error) => message.error(error.message),
   });
+  const packageCheckpoint = useMutation({
+    mutationFn: () => api.packageCheckpoint(checkpointId),
+    onSuccess: async () => {
+      message.success(t('checkpoints.packageQueued'));
+      await queryClient.invalidateQueries({ queryKey: ['utilities'] });
+    },
+    onError: (error) => message.error(error.message),
+  });
+  const cancelPackage = useMutation({
+    mutationFn: () => api.utilities.cancel(packageRun!.id),
+    onSuccess: async () => {
+      message.success(t('checkpoints.packageCancelled'));
+      await queryClient.invalidateQueries({ queryKey: ['utilities'] });
+    },
+    onError: (error) => message.error(error.message),
+  });
 
   return (
     <div className="page">
@@ -101,17 +123,35 @@ export function CheckpointDetailPage() {
               </Descriptions>
             </Card>
             <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-              <Col xs={24} lg={12}>
+              <Col xs={24} lg={8}>
                 <Card title={t('checkpointDetail.publishTitle')} extra={<CloudUploadOutlined />}>
                   <Typography.Paragraph>{t('checkpointDetail.publishDescription')}</Typography.Paragraph>
                   <Button type="primary" disabled={!checkpoint.data.tools.publish_huggingface.available} onClick={() => setPublishOpen(true)}>{t('checkpointDetail.publish')}</Button>
                 </Card>
               </Col>
-              <Col xs={24} lg={12}>
+              <Col xs={24} lg={8}>
                 <Card title={t('checkpointDetail.mergeTitle')} extra={<MergeCellsOutlined />}>
                   <Typography.Paragraph>{t('checkpointDetail.mergeDescription')}</Typography.Paragraph>
                   {!checkpoint.data.tools.merge_lora.available ? <Alert type="info" showIcon message={t('checkpointDetail.mergeUnavailable')} description={checkpoint.data.tools.merge_lora.reason} /> : null}
                   <Button style={{ marginTop: 12 }} disabled={!checkpoint.data.tools.merge_lora.available || checkpoint.data.tools.merge_lora.output_exists} onClick={() => { mergeForm.setFieldsValue({ model: mergeModels[0], output_name: suggestedName }); setMergeOpen(true); }}>{t('checkpointDetail.merge')}</Button>
+                </Card>
+              </Col>
+              <Col xs={24} lg={8}>
+                <Card title={t('checkpointDetail.packageTitle')} extra={<FileZipOutlined />}>
+                  <Typography.Paragraph>{t('checkpointDetail.packageDescription')}</Typography.Paragraph>
+                  {packageRun && ['queued', 'starting', 'running', 'stopping'].includes(packageRun.status) ? (
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      <UtilityProgress run={packageRun} />
+                      <Button danger loading={cancelPackage.isPending} onClick={() => cancelPackage.mutate()}>{t('common.cancel')}</Button>
+                    </Space>
+                  ) : (
+                    <Space wrap>
+                      {packageRun?.status === 'completed' ? <Button icon={<DownloadOutlined />} href={api.utilities.outputUrl(packageRun.id)}>{t('common.download')}</Button> : null}
+                      <Button type="primary" icon={<FileZipOutlined />} disabled={!checkpoint.data.can_package} loading={packageCheckpoint.isPending} onClick={() => packageCheckpoint.mutate()}>
+                        {packageRun?.status === 'completed' ? t('checkpoints.repackage') : t('checkpoints.package')}
+                      </Button>
+                    </Space>
+                  )}
                 </Card>
               </Col>
             </Row>

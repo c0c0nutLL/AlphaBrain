@@ -11,6 +11,7 @@ import asyncio
 import json
 import os
 import signal
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ from .database import (
     utcnow,
 )
 from .dataset_registry import inspect_dataset
+from .process_control import FORCE_KILL_SIGNAL, new_process_group_kwargs, signal_process_group
 from .runtime import RuntimeConfig
 from .secrets import HuggingFaceSecretStore
 
@@ -54,6 +56,7 @@ class UtilityManager:
         self._closing = False
 
     async def start(self) -> None:
+        interrupted: list[UtilityRun] = []
         with self.database.session() as db:
             rows = db.execute(select(UtilityRun).where(UtilityRun.status.in_(UTILITY_ACTIVE_STATUSES))).scalars()
             for row in rows:
@@ -62,7 +65,10 @@ class UtilityManager:
                 row.finished_at = utcnow()
                 row.pid = None
                 row.pgid = None
+                interrupted.append(row)
             db.execute(delete(UtilityGPUReservation))
+        for row in interrupted:
+            self._cleanup_run_paths(row)
         self._closing = False
         self._scheduler = asyncio.create_task(self._schedule_loop(), name="alphabrain-utility-scheduler")
 
@@ -115,16 +121,60 @@ class UtilityManager:
         if db_session is not None:
             db_session.add(run)
             db_session.flush()
+            self._prepare_run(run)
             run.log_path = str(self.runtime.state_dir / "logs" / "utilities" / f"{run.id}.log")
             db_session.flush()
         else:
             with self.database.session() as db:
                 db.add(run)
                 db.flush()
+                self._prepare_run(run)
                 run.log_path = str(self.runtime.state_dir / "logs" / "utilities" / f"{run.id}.log")
                 db.flush()
                 db.expunge(run)
         return run
+
+    def _prepare_run(self, run: UtilityRun) -> None:
+        progress_path = self.runtime.state_dir / "progress" / "utilities" / f"{run.id}.json"
+        replacements = {
+            "{run_id}": run.id,
+            "{progress_path}": str(progress_path),
+        }
+
+        def expand(value: Any) -> Any:
+            if isinstance(value, str):
+                for token, replacement in replacements.items():
+                    value = value.replace(token, replacement)
+                return value
+            if isinstance(value, list):
+                return [expand(item) for item in value]
+            if isinstance(value, dict):
+                return {str(key): expand(item) for key, item in value.items()}
+            return value
+
+        run.command = [str(expand(item)) for item in run.command]
+        run.output_path = str(expand(run.output_path))
+        run.parameters = {
+            **expand(dict(run.parameters or {})),
+            "_progress_path": str(progress_path),
+        }
+
+    @staticmethod
+    def _cleanup_path(path: Path, run_id: str) -> None:
+        if not path.name.endswith(f".partial-{run_id}"):
+            return
+        try:
+            if path.is_symlink() or path.is_file():
+                path.unlink(missing_ok=True)
+            elif path.is_dir():
+                shutil.rmtree(path)
+        except OSError:
+            pass
+
+    def _cleanup_run_paths(self, run: UtilityRun) -> None:
+        values = (run.parameters or {}).get("_cleanup_paths", [])
+        for value in values if isinstance(values, list) else []:
+            self._cleanup_path(Path(str(value)), run.id)
 
     async def _schedule_loop(self) -> None:
         while not self._closing:
@@ -205,7 +255,7 @@ class UtilityManager:
                 env=environment,
                 stdout=log_stream,
                 stderr=asyncio.subprocess.STDOUT,
-                start_new_session=True,
+                **new_process_group_kwargs(),
             )
         except Exception as exc:
             with self.database.session() as db:
@@ -244,6 +294,7 @@ class UtilityManager:
             exit_code = await process.wait()
         finally:
             log_stream.close()
+        cleanup_run: UtilityRun | None = None
         with self.database.session() as db:
             row = db.get(UtilityRun, run_id)
             if row is None:
@@ -254,16 +305,20 @@ class UtilityManager:
             row.finished_at = utcnow()
             if row.status == "stopping":
                 row.status = "stopped"
+                cleanup_run = row
             elif exit_code == 0:
                 row.status = "completed"
             else:
                 row.status = "failed"
                 row.error = f"utility exited with code {exit_code}"
+                cleanup_run = row
             db.execute(
                 delete(UtilityGPUReservation).where(
                     UtilityGPUReservation.utility_run_id == run_id
                 )
             )
+        if cleanup_run is not None:
+            self._cleanup_run_paths(cleanup_run)
         if exit_code == 0:
             self._finalize_domain(run_id)
         else:
@@ -328,7 +383,9 @@ class UtilityManager:
 
     async def stop(self, run_id: str) -> None:
         process = self._processes.get(run_id)
+        watcher = self._watchers.get(run_id)
         cancelled_while_queued = False
+        cleanup_run: UtilityRun | None = None
         with self.database.session() as db:
             row = db.get(UtilityRun, run_id)
             if row is None:
@@ -337,22 +394,48 @@ class UtilityManager:
                 row.status = "cancelled"
                 row.finished_at = utcnow()
                 cancelled_while_queued = True
+                cleanup_run = row
             elif row.status not in UTILITY_ACTIVE_STATUSES:
                 return
             else:
                 row.status = "stopping"
                 row.stop_requested_at = utcnow()
         if cancelled_while_queued:
+            if cleanup_run is not None:
+                self._cleanup_run_paths(cleanup_run)
             self.sync_publication_status(run_id)
             return
         if process and process.returncode is None:
             try:
-                os.killpg(process.pid, signal.SIGTERM)
+                signal_process_group(process.pid, process.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(process.wait()),
+                    timeout=max(1, min(int(self.runtime.stop_grace_seconds), 10)),
+                )
+            except TimeoutError:
+                try:
+                    signal_process_group(process.pid, process.pid, FORCE_KILL_SIGNAL)
+                except ProcessLookupError:
+                    pass
+                await process.wait()
+        if watcher is not None:
+            await asyncio.shield(watcher)
 
 
 def serialize_utility(run: UtilityRun, *, queue_position: int | None = None) -> dict[str, Any]:
+    progress = None
+    raw_progress_path = str((run.parameters or {}).get("_progress_path") or "")
+    progress_path = Path(raw_progress_path) if raw_progress_path else None
+    if progress_path is not None and progress_path.name == f"{run.id}.json":
+        try:
+            candidate = json.loads(progress_path.read_text(encoding="utf-8"))
+            if isinstance(candidate, dict):
+                progress = candidate
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            pass
     return {
         "id": run.id, "owner_id": run.owner_id, "kind": run.kind, "resource_id": run.resource_id,
         "status": run.status, "queue_class": run.queue_class, "requested_gpu_count": run.requested_gpu_count,
@@ -360,6 +443,7 @@ def serialize_utility(run: UtilityRun, *, queue_position: int | None = None) -> 
         "parameters": {key: value for key, value in (run.parameters or {}).items() if not str(key).startswith("_")},
         "output_path": run.output_path, "log_path": run.log_path, "error": run.error,
         "exit_code": run.exit_code, "queue_position": queue_position,
+        "progress": progress,
         "queued_at": run.queued_at, "started_at": run.started_at, "finished_at": run.finished_at,
         "created_at": run.created_at, "updated_at": run.updated_at,
     }

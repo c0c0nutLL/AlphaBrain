@@ -54,10 +54,13 @@ def resource_catalog(repo_root: Path, settings: Mapping[str, Any]) -> list[dict[
     records: list[dict[str, Any]] = []
     for name, spec in _pretrained_registry(repo_root).items():
         target = pretrained_root / name if pretrained_root else None
+        repo_id = spec["hf_repo"]
         records.append(
             {
                 "id": f"pretrained.{name}", "kind": "pretrained_model", "name": name,
-                "source": spec["hf_repo"], "installable": True, "requires_admin": True,
+                "source": repo_id, "installable": True, "requires_admin": True,
+                "requires_hf_token": repo_id.startswith(("google/paligemma", "meta-llama/")),
+                "install_root": str(pretrained_root) if pretrained_root else None,
                 "target_path": str(target) if target else None,
                 "status": "installed" if target and _present_model(target) else ("missing" if target else "unconfigured"),
                 "dependencies": [],
@@ -71,6 +74,7 @@ def resource_catalog(repo_root: Path, settings: Mapping[str, Any]) -> list[dict[
         {
             "id": "dataset.libero", "kind": "dataset", "name": "LIBERO LeRobot (4 suites)",
             "source": list(LIBERO_REPOS), "installable": True, "requires_admin": True,
+            "install_root": str(libero_root) if libero_root else None,
             "target_path": str(libero_root) if libero_root else None,
             "status": "installed" if expected and all((item / "meta/info.json").is_file() for item in expected) else ("missing" if libero_root else "unconfigured"),
             "dependencies": [],
@@ -96,16 +100,44 @@ def resource_catalog(repo_root: Path, settings: Mapping[str, Any]) -> list[dict[
 def install_command(resource_id: str, *, repo_root: Path, target_root: Path) -> tuple[list[str], dict[str, str], str]:
     if resource_id.startswith("pretrained."):
         name = resource_id.removeprefix("pretrained.")
-        if name not in _pretrained_registry(repo_root):
+        definition = _pretrained_registry(repo_root).get(name)
+        if definition is None:
             raise ValueError("unknown_resource")
+        target = target_root / name
         return (
-            [sys.executable, str(repo_root / PRETRAINED_SCRIPT), "--names", name],
-            {"PRETRAINED_MODELS_DIR": str(target_root)},
-            str(target_root / name),
+            [
+                sys.executable,
+                "-m",
+                "alphabrain_ui.utility_worker",
+                "download-pretrained",
+                "--repo-id",
+                definition["hf_repo"],
+                "--target",
+                str(target),
+                "--run-id",
+                "{run_id}",
+                "--progress",
+                "{progress_path}",
+            ],
+            {},
+            str(target),
         )
     if resource_id == "dataset.libero":
         return (
-            [sys.executable, "-m", "alphabrain_ui.utility_worker", "download-libero", "--target", str(target_root), "--repo-root", str(repo_root)],
+            [
+                sys.executable,
+                "-m",
+                "alphabrain_ui.utility_worker",
+                "download-libero",
+                "--target",
+                str(target_root),
+                "--repo-root",
+                str(repo_root),
+                "--run-id",
+                "{run_id}",
+                "--progress",
+                "{progress_path}",
+            ],
             {}, str(target_root),
         )
     raise ValueError("resource_not_installable")

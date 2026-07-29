@@ -7,6 +7,7 @@ import { api } from '../api/client';
 import type { ResourceRecord } from '../api/types';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
+import { UtilityProgress } from '../components/UtilityProgress';
 
 type ResourceAction = { kind: 'install' | 'register' | 'preprocess'; resource: ResourceRecord };
 
@@ -48,6 +49,14 @@ export function ResourcesPage() {
     onSuccess: async () => { message.success(t('resources.taskCreated')); setAction(undefined); form.resetFields(); await refresh(); },
     onError: (error) => message.error(error.message),
   });
+  const cancelRun = useMutation({
+    mutationFn: (id: string) => api.utilities.cancel(id),
+    onSuccess: async () => {
+      message.success(t('resources.taskCancelled'));
+      await refresh();
+    },
+    onError: (error) => message.error(error.message),
+  });
   const saveToken = async (scope: 'global' | 'publish') => {
     const value = (scope === 'global' ? globalValue : publishValue).trim();
     if (value.length < 8 || /\s/.test(value)) return message.error(t('resources.invalidToken'));
@@ -68,7 +77,7 @@ export function ResourcesPage() {
   const openAction = (next: ResourceAction) => {
     setAction(next);
     form.setFieldsValue({
-      target_root: next.resource.target_path,
+      target_root: next.resource.install_root ?? next.resource.target_path,
       path: next.resource.target_path,
       preprocess_kind: next.resource.preprocess?.[0],
       gpu_count: 1,
@@ -98,10 +107,11 @@ export function ResourcesPage() {
             pagination={false}
             columns={[
               { title: t('resources.resource'), dataIndex: 'name', render: (value, row) => <Space direction="vertical" size={0}><Typography.Text strong>{value}</Typography.Text><Typography.Text type="secondary">{row.kind}</Typography.Text></Space> },
-              { title: t('common.status'), dataIndex: 'status', render: (value) => <Tag color={value === 'installed' ? 'green' : value === 'missing' ? 'orange' : 'default'}>{t(`resources.status.${value}`, { defaultValue: value })}</Tag> },
+              { title: t('common.status'), dataIndex: 'status', render: (value, row) => row.active_run ? <UtilityProgress run={row.active_run} compact /> : <Tag color={value === 'installed' ? 'green' : value === 'missing' ? 'orange' : 'default'}>{t(`resources.status.${value}`, { defaultValue: value })}</Tag> },
               { title: t('resources.path'), dataIndex: 'target_path', ellipsis: true, render: (value) => value || '—' },
               { title: t('common.actions'), render: (_, row) => <Space wrap>
-                {row.installable && me.data?.role === 'administrator' ? <Button size="small" icon={<CloudDownloadOutlined />} disabled={Boolean(row.active_run)} onClick={() => openAction({ kind: 'install', resource: row })}>{t('resources.install')}</Button> : null}
+                {row.installable && me.data?.role === 'administrator' ? <Button size="small" icon={<CloudDownloadOutlined />} title={row.requires_hf_token && !globalToken.data?.configured ? t('resources.tokenRequired') : undefined} disabled={Boolean(row.active_run) || Boolean(row.requires_hf_token && !globalToken.data?.configured)} onClick={() => openAction({ kind: 'install', resource: row })}>{t('resources.install')}</Button> : null}
+                {row.active_run && ['queued', 'starting', 'running', 'stopping'].includes(row.active_run.status) ? <Button danger size="small" loading={cancelRun.isPending && cancelRun.variables === row.active_run.id} onClick={() => cancelRun.mutate(row.active_run!.id)}>{t('resources.cancelDownload')}</Button> : null}
                 {row.registerable && me.data?.role === 'administrator' ? <Button size="small" icon={<FolderOpenOutlined />} onClick={() => openAction({ kind: 'register', resource: row })}>{t('resources.registerPath')}</Button> : null}
                 {row.preprocess?.length ? <Button size="small" icon={<PlayCircleOutlined />} onClick={() => openAction({ kind: 'preprocess', resource: row })}>{t('resources.preprocess')}</Button> : null}
               </Space> },
@@ -112,9 +122,10 @@ export function ResourcesPage() {
           <Table rowKey="id" size="small" dataSource={utilities.data ?? []} pagination={{ pageSize: 8 }} columns={[
             { title: t('resources.taskType'), dataIndex: 'kind' },
             { title: t('common.status'), dataIndex: 'status', render: (value) => <Tag>{value}</Tag> },
+            { title: t('resources.progress'), render: (_, row) => <UtilityProgress run={row} compact /> },
             { title: t('resources.queue'), render: (_, row) => `${row.queue_class.toUpperCase()}${row.queue_position ? ` · #${row.queue_position}` : ''}` },
             { title: t('resources.output'), dataIndex: 'output_path', ellipsis: true },
-            { title: t('common.actions'), render: (_, row) => <Space><Button size="small" href={api.utilities.logUrl(row.id)} target="_blank">Log</Button>{['queued', 'starting', 'running'].includes(row.status) ? <Button danger size="small" onClick={() => void api.utilities.cancel(row.id).then(refresh)}>{t('common.cancel')}</Button> : null}</Space> },
+            { title: t('common.actions'), render: (_, row) => <Space><Button size="small" href={api.utilities.logUrl(row.id)} target="_blank">Log</Button>{['queued', 'starting', 'running', 'stopping'].includes(row.status) ? <Button danger size="small" loading={cancelRun.isPending && cancelRun.variables === row.id} onClick={() => cancelRun.mutate(row.id)}>{t('common.cancel')}</Button> : null}</Space> },
           ]} />
         </Card>
       </AsyncState>

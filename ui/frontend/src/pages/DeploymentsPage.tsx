@@ -171,7 +171,8 @@ function CreateDeploymentModal({ open, onClose, onCreated }: {
   }, [form, open, singleGpu, visibleGpuCount]);
 
   const makePayload = async (): Promise<DeploymentCreateRequest> => {
-    const data = await form.validateFields();
+    await form.validateFields();
+    const data = form.getFieldsValue(true);
     const checkpoint_source = data.checkpoint_kind === 'indexed'
       ? { kind: 'indexed' as const, checkpoint_id: data.checkpoint_id! }
       : { kind: 'local' as const, path: data.checkpoint_path! };

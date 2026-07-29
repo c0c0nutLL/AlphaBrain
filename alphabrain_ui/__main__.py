@@ -18,6 +18,11 @@ def main() -> None:
         help="Initial mode for an uninitialized state directory (default: personal; saved settings win later)",
     )
     parser.add_argument("--reload", action="store_true", help="Enable development auto-reload")
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="Run an isolated local demo with simulated GPUs, training, deployment, inference, and evaluation",
+    )
     args = parser.parse_args()
 
     # Configuration is passed through environment because uvicorn imports the
@@ -34,9 +39,13 @@ def main() -> None:
         os.environ["ALPHABRAIN_UI_PORT"] = str(args.port)
     if args.mode:
         os.environ["ALPHABRAIN_UI_MODE"] = args.mode
+    if args.demo:
+        os.environ["ALPHABRAIN_UI_DEMO"] = "1"
+        os.environ.setdefault("ALPHABRAIN_UI_HOST", "127.0.0.1")
+        os.environ.setdefault("ALPHABRAIN_UI_PORT", "8100")
 
     host = args.host or os.environ.get("ALPHABRAIN_UI_HOST", "127.0.0.1")
-    port = args.port or int(os.environ.get("ALPHABRAIN_UI_PORT", "8000"))
+    port = args.port or int(os.environ.get("ALPHABRAIN_UI_PORT", "8100" if args.demo else "8000"))
     uvicorn.run(
         "alphabrain_ui.app:create_app",
         factory=True,

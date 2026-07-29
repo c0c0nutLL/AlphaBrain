@@ -7,6 +7,7 @@ third_party/
 
 # AlphaBrain Web UI runtime state and local databases
 .alphabrain-ui/
+.alphabrain-demo/
 *.sqlite3
 *.sqlite3-journal
 *.sqlite3-shm
@@ -124,6 +125,7 @@ celerybeat.pid
 
 # Environments
 .venv
+.venv-*/
 env/
 venv/
 ENV/

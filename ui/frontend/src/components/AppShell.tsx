@@ -3,7 +3,6 @@ import {
   ApartmentOutlined,
   AuditOutlined,
   BarChartOutlined,
-  BulbOutlined,
   CloudServerOutlined,
   DashboardOutlined,
   DatabaseOutlined,
@@ -23,13 +22,14 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Avatar, Button, Dropdown, Layout, Menu, Space, Tooltip, Typography, type MenuProps } from 'antd';
+import { Avatar, Button, Dropdown, Layout, Menu, Space, Tag, Tooltip, Typography, type MenuProps } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Language, ThemeMode } from '../api/types';
 import { usePreferences } from '../app-context';
+import brandLogo from '../../logo/cropped-fav.png';
 
 const { Header, Sider, Content } = Layout;
 
@@ -41,6 +41,7 @@ export function AppShell() {
   const { language, setLanguage, theme, setTheme } = usePreferences();
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('alphabrain-nav-collapsed') === 'true');
   const me = useQuery({ queryKey: ['me'], queryFn: api.auth.me, staleTime: 60_000 });
+  const runtime = useQuery({ queryKey: ['runtime'], queryFn: api.runtime, staleTime: 60_000 });
   const logout = useMutation({
     mutationFn: api.auth.logout,
     onSuccess: () => {
@@ -129,7 +130,7 @@ export function AppShell() {
         trigger={null}
       >
         <button className="brand" type="button" onClick={() => navigate('/')}>
-          <span className="brand-mark"><BulbOutlined /></span>
+          <span className="brand-mark"><img className="brand-logo" src={brandLogo} alt="" /></span>
           {!collapsed ? <span className="brand-copy"><b>AlphaBrain</b><small>{t('common.consoleShort').toUpperCase()}</small></span> : null}
         </button>
         <Menu
@@ -156,6 +157,11 @@ export function AppShell() {
       </Sider>
       <Layout>
         <Header className="app-header">
+          {runtime.data?.demo_mode ? (
+            <Tooltip title={t('common.demoModeHint')}>
+              <Tag color="gold">{t('common.demoMode')}</Tag>
+            </Tooltip>
+          ) : null}
           <div className="header-spacer" />
           <Space size="small">
             <Tooltip title={language === 'zh-CN' ? 'English' : '简体中文'}>

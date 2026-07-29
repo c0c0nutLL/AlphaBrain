@@ -33,6 +33,10 @@ class SecureSecretStore:
         os.chmod(self.root, 0o700)
 
     def _fsync_root(self) -> None:
+        if os.name == "nt":
+            # Windows has no portable directory fsync primitive. os.replace
+            # remains atomic on the same volume.
+            return
         descriptor = os.open(self.root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
         try:
             os.fsync(descriptor)
@@ -48,7 +52,10 @@ class SecureSecretStore:
         descriptor, temporary_name = tempfile.mkstemp(prefix=".secret-", dir=self.root)
         temporary = Path(temporary_name)
         try:
-            os.fchmod(descriptor, 0o600)
+            if hasattr(os, "fchmod"):
+                os.fchmod(descriptor, 0o600)
+            else:
+                os.chmod(temporary, 0o600)
             with os.fdopen(descriptor, "wb") as stream:
                 descriptor = -1
                 stream.write(value.encode("utf-8"))
@@ -70,7 +77,9 @@ class SecureSecretStore:
             return None
         try:
             info = os.fstat(descriptor)
-            if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) & 0o077:
+            if not stat.S_ISREG(info.st_mode) or (
+                os.name != "nt" and stat.S_IMODE(info.st_mode) & 0o077
+            ):
                 raise PermissionError("secret file permissions are unsafe")
             data = os.read(descriptor, 4097)
             if len(data) > 4096:
