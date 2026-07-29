@@ -832,6 +832,38 @@ const en: typeof zh = {
   status: { draft: 'Draft', checking: 'Checking', blocked: 'Waiting for dependency', queued: 'Queued', starting: 'Starting', running: 'Running', stopping: 'Stopping', partial: 'Partially completed', completed: 'Completed', stopped: 'Stopped', failed: 'Failed', interrupted: 'Interrupted', dependency_failed: 'Dependency failed', cancelled: 'Cancelled', timed_out: 'Timed out' },
 };
 
+Object.assign(zh.settings, {
+  remoteTraining: '远程训练',
+  remoteTrainingHint: '启用后，训练任务通过 SSH 在指定服务器运行；UI、队列和日志仍由当前机器管理。只支持 SSH Key 或 ssh-agent，不保存密码。',
+  remoteTrainingEnabled: '通过 SSH 运行训练',
+  remoteTrainingHost: 'SSH 主机',
+  remoteTrainingUser: 'SSH 用户',
+  remoteTrainingPort: 'SSH 端口',
+  remoteTrainingRepoRoot: '远端 AlphaBrain 仓库目录',
+  remoteTrainingGpuIds: '远端 GPU ID',
+  remoteTrainingGpuIdsHint: '平台只在自身提交的远程任务之间协调这些 GPU；不会检测服务器上由其他工具启动的进程。',
+  remoteTrainingIdentityFile: 'SSH 私钥文件（可选）',
+  remoteTrainingIdentityFileHint: '该路径位于运行 UI 的机器。留空时使用 ssh-agent 或 SSH 默认密钥；主机必须已存在于 known_hosts。',
+  remoteTrainingSetupCommand: '远端环境激活命令（可选）',
+  remoteTrainingSetupCommandHint: '在仓库目录中、训练命令之前运行，例如 source .venv/bin/activate。',
+});
+
+Object.assign(en.settings, {
+  remoteTraining: 'Remote training',
+  remoteTrainingHint: 'When enabled, training jobs run on the configured server over SSH. The current machine continues to manage the UI, queue, and logs. Passwords are not stored; use an SSH key or ssh-agent.',
+  remoteTrainingEnabled: 'Run training over SSH',
+  remoteTrainingHost: 'SSH host',
+  remoteTrainingUser: 'SSH user',
+  remoteTrainingPort: 'SSH port',
+  remoteTrainingRepoRoot: 'Remote AlphaBrain repository',
+  remoteTrainingGpuIds: 'Remote GPU IDs',
+  remoteTrainingGpuIdsHint: 'The queue coordinates these GPUs only among remote jobs submitted by this platform; it cannot detect processes started by other tools on the server.',
+  remoteTrainingIdentityFile: 'SSH identity file (optional)',
+  remoteTrainingIdentityFileHint: 'This path is on the machine running the UI. Leave blank to use ssh-agent or default SSH keys. The host must already be present in known_hosts.',
+  remoteTrainingSetupCommand: 'Remote environment setup (optional)',
+  remoteTrainingSetupCommandHint: 'Runs in the repository before training, for example: source .venv/bin/activate.',
+});
+
 const savedLanguage = localStorage.getItem('alphabrain-language');
 void i18n.use(initReactI18next).init({
   resources: {

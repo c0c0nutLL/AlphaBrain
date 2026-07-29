@@ -26,7 +26,9 @@ from .database import (
 )
 from .gpu import GPUMonitor
 from .process_control import FORCE_KILL_SIGNAL, new_process_group_kwargs, process_group_matches, signal_process_group
+from .remote_training import RemoteTrainingConfig, build_remote_script
 from .runtime import RuntimeConfig
+from .services import SettingsService
 from .wandb import WANDB_API_KEY_ENV, WANDB_CATEGORIES_ENV, WandbSecretStore
 
 ACTIVE_STATUSES = {"starting", "running", "stopping"}
@@ -248,66 +250,107 @@ class JobManager:
             )
             if job is None:
                 return
-            reservations = {row.gpu_index: row.job_id for row in db.execute(select(GPUReservation)).scalars().all()}
-            reservations.update(
-                {
-                    row.gpu_index: f"deployment:{row.deployment_id}"
-                    for row in db.execute(select(DeploymentGPUReservation)).scalars().all()
+            remote_config = RemoteTrainingConfig.from_settings(SettingsService(db).all())
+            if remote_config.enabled:
+                reservations = {
+                    row.gpu_index: row.job_id
+                    for row in db.execute(select(GPUReservation)).scalars().all()
                 }
-            )
-            reservations.update(
-                {
-                    row.gpu_index: f"utility:{row.utility_run_id}"
-                    for row in db.execute(select(UtilityGPUReservation)).scalars().all()
-                }
-            )
-            reservations.update(
-                {
-                    row.gpu_index: f"evaluation:{row.evaluation_id}"
-                    for row in db.execute(select(EvaluationGPUReservation)).scalars().all()
-                }
-            )
-            snapshot = self.gpu_monitor.snapshot(reservations)
-            if not snapshot:
-                return
-            by_index = {gpu.index: gpu for gpu in snapshot}
-            if job.requested_gpu_ids:
-                chosen = [int(x) for x in job.requested_gpu_ids]
-                missing = [idx for idx in chosen if idx not in by_index]
-                if missing:
-                    job.status = "failed"
-                    job.error = f"Requested GPU IDs are no longer visible: {missing}"
-                    job.finished_at = utcnow()
-                    self._refresh_experiment_statuses(db)
-                    return
-                failed_inspection = [idx for idx in chosen if by_index[idx].error]
-                if failed_inspection:
-                    job.status = "failed"
-                    job.error = f"Unable to inspect requested GPU IDs: {failed_inspection}"
-                    job.finished_at = utcnow()
-                    self._refresh_experiment_statuses(db)
-                    return
-                if any(not by_index[idx].available for idx in chosen):
-                    return
+                configured = list(remote_config.gpu_ids)
+                if job.requested_gpu_ids:
+                    chosen = [int(value) for value in job.requested_gpu_ids]
+                    if configured and any(index not in configured for index in chosen):
+                        job.status = "failed"
+                        job.error = f"Requested GPU IDs are not configured on the remote server: {chosen}"
+                        job.finished_at = utcnow()
+                        self._refresh_experiment_statuses(db)
+                        return
+                    if any(index in reservations for index in chosen):
+                        return
+                else:
+                    available = [index for index in configured if index not in reservations]
+                    if len(available) < job.requested_gpu_count:
+                        if job.requested_gpu_count > len(configured):
+                            job.status = "failed"
+                            job.error = (
+                                f"Requested {job.requested_gpu_count} GPUs, but only "
+                                f"{len(configured)} remote GPU IDs are configured."
+                            )
+                            job.finished_at = utcnow()
+                            self._refresh_experiment_statuses(db)
+                        return
+                    chosen = available[: job.requested_gpu_count]
+                for index in chosen:
+                    db.add(GPUReservation(gpu_index=index, job_id=job.id))
+                job.assigned_gpu_ids = chosen
+                job.status = "starting"
+                job.started_at = utcnow()
+                job_id = job.id
+                self._refresh_experiment_statuses(db)
             else:
-                healthy = [gpu for gpu in snapshot if not gpu.error]
-                if job.requested_gpu_count > len(healthy):
-                    job.status = "failed"
-                    job.error = f"Requested {job.requested_gpu_count} GPUs, but only {len(healthy)} can be inspected."
-                    job.finished_at = utcnow()
-                    self._refresh_experiment_statuses(db)
+                reservations = {row.gpu_index: row.job_id for row in db.execute(select(GPUReservation)).scalars().all()}
+                reservations.update(
+                    {
+                        row.gpu_index: f"deployment:{row.deployment_id}"
+                        for row in db.execute(select(DeploymentGPUReservation)).scalars().all()
+                    }
+                )
+                reservations.update(
+                    {
+                        row.gpu_index: f"utility:{row.utility_run_id}"
+                        for row in db.execute(select(UtilityGPUReservation)).scalars().all()
+                    }
+                )
+                reservations.update(
+                    {
+                        row.gpu_index: f"evaluation:{row.evaluation_id}"
+                        for row in db.execute(select(EvaluationGPUReservation)).scalars().all()
+                    }
+                )
+                snapshot = self.gpu_monitor.snapshot(reservations)
+                if not snapshot:
                     return
-                available = [gpu.index for gpu in snapshot if gpu.available]
-                if len(available) < job.requested_gpu_count:
-                    return
-                chosen = available[: job.requested_gpu_count]
-            for index in chosen:
-                db.add(GPUReservation(gpu_index=index, job_id=job.id))
-            job.assigned_gpu_ids = chosen
-            job.status = "starting"
-            job.started_at = utcnow()
-            job_id = job.id
-            self._refresh_experiment_statuses(db)
+                by_index = {gpu.index: gpu for gpu in snapshot}
+                if job.requested_gpu_ids:
+                    chosen = [int(x) for x in job.requested_gpu_ids]
+                    missing = [idx for idx in chosen if idx not in by_index]
+                    if missing:
+                        job.status = "failed"
+                        job.error = f"Requested GPU IDs are no longer visible: {missing}"
+                        job.finished_at = utcnow()
+                        self._refresh_experiment_statuses(db)
+                        return
+                    failed_inspection = [idx for idx in chosen if by_index[idx].error]
+                    if failed_inspection:
+                        job.status = "failed"
+                        job.error = f"Unable to inspect requested GPU IDs: {failed_inspection}"
+                        job.finished_at = utcnow()
+                        self._refresh_experiment_statuses(db)
+                        return
+                    if any(not by_index[idx].available for idx in chosen):
+                        return
+                else:
+                    healthy = [gpu for gpu in snapshot if not gpu.error]
+                    if job.requested_gpu_count > len(healthy):
+                        job.status = "failed"
+                        job.error = (
+                            f"Requested {job.requested_gpu_count} GPUs, but only "
+                            f"{len(healthy)} can be inspected."
+                        )
+                        job.finished_at = utcnow()
+                        self._refresh_experiment_statuses(db)
+                        return
+                    available = [gpu.index for gpu in snapshot if gpu.available]
+                    if len(available) < job.requested_gpu_count:
+                        return
+                    chosen = available[: job.requested_gpu_count]
+                for index in chosen:
+                    db.add(GPUReservation(gpu_index=index, job_id=job.id))
+                job.assigned_gpu_ids = chosen
+                job.status = "starting"
+                job.started_at = utcnow()
+                job_id = job.id
+                self._refresh_experiment_statuses(db)
         await self._spawn(job_id)
 
     async def _start_gpu_utility(self, run_id: str) -> None:
@@ -437,23 +480,53 @@ class JobManager:
                         env[WANDB_API_KEY_ENV] = wandb_api_key
                 env.pop("ALPHABRAIN_UI_PREFERRED_PORT", None)
                 env["CUDA_VISIBLE_DEVICES"] = ",".join(str(x) for x in gpu_ids)
-                # Scripts invoking `python` should resolve to the same
-                # environment that runs the UI backend.
-                import sys
-
-                env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
                 log_path = Path(job.log_path)
                 log_path.parent.mkdir(parents=True, exist_ok=True)
                 log_handle = log_path.open("ab", buffering=0)
-                process = await asyncio.create_subprocess_exec(
-                    *command,
-                    cwd=job.cwd,
-                    env=env,
-                    stdin=asyncio.subprocess.DEVNULL,
-                    stdout=log_handle,
-                    stderr=asyncio.subprocess.STDOUT,
-                    **new_process_group_kwargs(),
-                )
+                remote_config = RemoteTrainingConfig.from_settings(SettingsService(db).all())
+                if remote_config.enabled:
+                    remote_environment = {
+                        key: value
+                        for key, value in env.items()
+                        if key in resolved_environment
+                        or key in {WANDB_API_KEY_ENV, "CUDA_VISIBLE_DEVICES", "MASTER_PORT"}
+                    }
+                    ssh_command, remote_script = build_remote_script(
+                        config=remote_config,
+                        command=command,
+                        cwd=job.cwd,
+                        environment=remote_environment,
+                        local_repo_root=self.config.repo_root,
+                        local_state_dir=self.config.state_dir,
+                    )
+                    process = await asyncio.create_subprocess_exec(
+                        *ssh_command,
+                        cwd=self.config.repo_root,
+                        env=os.environ.copy(),
+                        stdin=asyncio.subprocess.PIPE,
+                        stdout=log_handle,
+                        stderr=asyncio.subprocess.STDOUT,
+                        **new_process_group_kwargs(),
+                    )
+                    assert process.stdin is not None
+                    process.stdin.write(remote_script)
+                    await process.stdin.drain()
+                    process.stdin.close()
+                else:
+                    # Scripts invoking `python` should resolve to the same
+                    # environment that runs the UI backend.
+                    import sys
+
+                    env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
+                    process = await asyncio.create_subprocess_exec(
+                        *command,
+                        cwd=job.cwd,
+                        env=env,
+                        stdin=asyncio.subprocess.DEVNULL,
+                        stdout=log_handle,
+                        stderr=asyncio.subprocess.STDOUT,
+                        **new_process_group_kwargs(),
+                    )
             except Exception as exc:
                 if log_handle is not None:
                     log_handle.close()

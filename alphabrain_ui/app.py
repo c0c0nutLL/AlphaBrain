@@ -89,6 +89,7 @@ from .evaluations import (
 from .jobs import ACTIVE_STATUSES, TERMINAL_STATUSES, JobManager
 from .launchers import build_launch_plan, normalize_family
 from .preflight import effective_environment, run_preflight
+from .remote_training import RemoteTrainingConfig, validate_remote_training_config
 from .runtime import RuntimeConfig
 from .schemas import (
     DatasetValidationRequest,
@@ -1452,6 +1453,43 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
             unsafe = [key for key in environment if key not in SAFE_ENV_KEYS]
             if unsafe:
                 raise HTTPException(status_code=422, detail={"code": "unsafe_environment_keys", "keys": unsafe})
+        settings = SettingsService(db)
+        remote_keys = {
+            "remote_training_enabled",
+            "remote_training_host",
+            "remote_training_user",
+            "remote_training_port",
+            "remote_training_repo_root",
+            "remote_training_identity_file",
+            "remote_training_gpu_ids",
+            "remote_training_setup_command",
+        }
+        if remote_keys.intersection(values):
+            current_settings = settings.all()
+            candidate_settings = dict(current_settings)
+            candidate_settings.update({key: values[key] for key in remote_keys if key in values})
+            try:
+                remote_config = RemoteTrainingConfig.from_settings(candidate_settings)
+                validate_remote_training_config(remote_config)
+            except (TypeError, ValueError) as exc:
+                code = str(exc) if str(exc).startswith("remote_training_") else "remote_training_config_invalid"
+                raise HTTPException(status_code=422, detail=code) from exc
+            if remote_config.identity_file:
+                identity_file = Path(remote_config.identity_file).expanduser().resolve(strict=False)
+                if not identity_file.is_file():
+                    raise HTTPException(status_code=422, detail="remote_training_identity_file_not_found")
+                values["remote_training_identity_file"] = str(identity_file)
+            if remote_config.enabled and shutil.which("ssh") is None:
+                raise HTTPException(status_code=422, detail="remote_training_ssh_not_found")
+            changed_remote_keys = {
+                key for key in remote_keys if key in values and values[key] != current_settings.get(key)
+            }
+            if changed_remote_keys:
+                active_training = db.execute(
+                    select(func.count(Job.id)).where(Job.status.in_(ACTIVE_STATUSES | {"queued", "blocked"}))
+                ).scalar_one()
+                if active_training:
+                    raise HTTPException(status_code=409, detail="cannot_change_remote_training_with_active_jobs")
         results_roots = values.get("results_roots")
         if results_roots is not None:
             if not results_roots:
@@ -1498,7 +1536,6 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
             except OSError as exc:
                 raise HTTPException(status_code=422, detail={"code": f"{path_key}_unavailable", "path": str(path)}) from exc
             values[path_key] = str(path)
-        settings = SettingsService(db)
         old_mode = settings.get("deployment_mode")
         new_mode = values.get("deployment_mode", old_mode)
         if old_mode != new_mode:
@@ -2613,6 +2650,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
                 "dataset.mixture_spec",
             )
         effective_spec["dataset"] = dataset_spec
+        remote_training = RemoteTrainingConfig.from_settings(settings.all())
         result = run_preflight(
             repo_root=runtime.repo_root,
             state_dir=runtime.state_dir,
@@ -2625,6 +2663,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
             disk_min_free_percent=float(settings.get("disk_min_free_percent", 10)),
             include_experimental=_can_experimental(db, user),
             source_catalog=effective_registry_catalog(),
+            remote_gpu_ids=list(remote_training.gpu_ids) if remote_training.enabled else None,
         )
         resolved, compatibility, issues, previews = result
         issues.extend(dataset_reference_issues)

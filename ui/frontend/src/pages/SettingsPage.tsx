@@ -32,6 +32,7 @@ export function SettingsPage() {
   const [wandbSaving, setWandbSaving] = useState(false);
   const [wandbDeleting, setWandbDeleting] = useState(false);
   const selectedMode = Form.useWatch('mode', generalForm);
+  const remoteTrainingEnabled = Form.useWatch('remote_training_enabled', environmentForm);
 
   useEffect(() => {
     if (settings.data) {
@@ -170,6 +171,22 @@ export function SettingsPage() {
                       <Form.Item name="pretrained_root" label={t('settings.pretrainedRoot')}><Input placeholder="data/pretrained_models" /></Form.Item>
                       <Form.Item name="cpu_utility_concurrency" label={t('settings.utilityConcurrency')}><InputNumber min={1} max={16} className="full-width" /></Form.Item>
                       <Form.Item name="model_server_python" label={t('settings.modelServerPython')} extra={t('settings.modelServerPythonHint')}><Input placeholder="/path/to/python" /></Form.Item>
+                      <Typography.Title level={5}>{t('settings.remoteTraining')}</Typography.Title>
+                      <Alert type="info" showIcon message={t('settings.remoteTrainingHint')} />
+                      <Form.Item name="remote_training_enabled" label={t('settings.remoteTrainingEnabled')} valuePropName="checked"><Switch /></Form.Item>
+                      {remoteTrainingEnabled ? (
+                        <>
+                          <div className="form-grid-2">
+                            <Form.Item name="remote_training_host" label={t('settings.remoteTrainingHost')} rules={[{ required: true, whitespace: true }]}><Input placeholder="gpu-server.example.edu" /></Form.Item>
+                            <Form.Item name="remote_training_user" label={t('settings.remoteTrainingUser')}><Input placeholder="researcher" /></Form.Item>
+                            <Form.Item name="remote_training_port" label={t('settings.remoteTrainingPort')} rules={[{ required: true }]}><InputNumber min={1} max={65535} className="full-width" /></Form.Item>
+                            <Form.Item name="remote_training_repo_root" label={t('settings.remoteTrainingRepoRoot')} rules={[{ required: true, whitespace: true }]}><Input placeholder="/srv/AlphaBrain" /></Form.Item>
+                          </div>
+                          <Form.Item name="remote_training_gpu_ids" label={t('settings.remoteTrainingGpuIds')} extra={t('settings.remoteTrainingGpuIdsHint')} rules={[{ required: true, type: 'array', min: 1 }]}><Select mode="tags" tokenSeparators={[',']} placeholder="0, 1, 2, 3" /></Form.Item>
+                          <Form.Item name="remote_training_identity_file" label={t('settings.remoteTrainingIdentityFile')} extra={t('settings.remoteTrainingIdentityFileHint')}><Input placeholder="~/.ssh/id_ed25519" /></Form.Item>
+                          <Form.Item name="remote_training_setup_command" label={t('settings.remoteTrainingSetupCommand')} extra={t('settings.remoteTrainingSetupCommandHint')}><Input placeholder="source .venv/bin/activate" /></Form.Item>
+                        </>
+                      ) : null}
                       <div className="form-grid-2">
                         <Form.Item name="low_disk_percent" label={t('settings.diskThreshold')}><InputNumber min={1} max={99} className="full-width" /></Form.Item>
                         <Form.Item name="low_disk_gib" label={t('settings.diskThresholdGib')}><InputNumber min={0} className="full-width" /></Form.Item>

@@ -226,6 +226,14 @@ class SettingsUpdate(APIModel):
     disk_min_free_percent: float | None = Field(default=None, ge=0, le=100)
     secure_cookies: bool | None = None
     model_server_python: str | None = Field(default=None, max_length=4096)
+    remote_training_enabled: bool | None = None
+    remote_training_host: str | None = Field(default=None, max_length=255)
+    remote_training_user: str | None = Field(default=None, max_length=255)
+    remote_training_port: int | None = Field(default=None, ge=1, le=65535)
+    remote_training_repo_root: str | None = Field(default=None, max_length=4096)
+    remote_training_identity_file: str | None = Field(default=None, max_length=4096)
+    remote_training_gpu_ids: list[int] | None = None
+    remote_training_setup_command: str | None = Field(default=None, max_length=4096)
     admin_password: str | None = Field(default=None, min_length=8)
 
 

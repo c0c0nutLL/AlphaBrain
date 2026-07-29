@@ -81,6 +81,7 @@ def run_preflight(
     disk_min_free_percent: float,
     include_experimental: bool,
     source_catalog: Mapping[str, Any] | None = None,
+    remote_gpu_ids: list[int] | None = None,
 ) -> tuple[dict[str, Any], str, list[dict[str, Any]], list[dict[str, Any]]]:
     issues: list[dict[str, Any]] = []
     family = normalize_family(spec)
@@ -187,21 +188,16 @@ def run_preflight(
             issues.append(issue("error", "checkpoint_not_found", f"Checkpoint does not exist: {checkpoint}"))
 
     requested = max((stage.requested_gpu_count for stage in stages), default=1)
-    gpus = gpu_monitor.snapshot()
-    healthy_gpus = [gpu for gpu in gpus if not gpu.error]
-    if not gpu_monitor.available:
-        issues.append(issue("error", "nvml_unavailable", f"NVIDIA NVML is unavailable: {gpu_monitor.error}"))
-    elif requested > len(healthy_gpus):
-        issues.append(
-            issue(
-                "error",
-                "gpu_count",
-                f"Requested {requested} GPUs, but only {len(healthy_gpus)} can be inspected.",
-                gpu_errors={gpu.index: gpu.error for gpu in gpus if gpu.error},
+    if remote_gpu_ids is not None:
+        visible_gpu_ids = set(remote_gpu_ids)
+        if requested > len(visible_gpu_ids):
+            issues.append(
+                issue(
+                    "error",
+                    "gpu_count",
+                    f"Requested {requested} GPUs, but only {len(visible_gpu_ids)} remote GPU IDs are configured.",
+                )
             )
-        )
-    else:
-        visible_gpu_ids = {gpu.index for gpu in gpus}
         invalid_gpu_ids = sorted(
             {gpu_id for stage in stages for gpu_id in stage.requested_gpu_ids if gpu_id not in visible_gpu_ids}
         )
@@ -210,37 +206,74 @@ def run_preflight(
                 issue(
                     "error",
                     "gpu_ids_not_visible",
-                    f"Requested GPU IDs are not visible: {invalid_gpu_ids}",
+                    f"Requested GPU IDs are not configured for remote training: {invalid_gpu_ids}",
                     "resources.gpu_ids",
                     visible_gpu_ids=sorted(visible_gpu_ids),
                     invalid_gpu_ids=invalid_gpu_ids,
-                )
-            )
-        requested_with_errors = sorted(
-            {
-                gpu_id
-                for stage in stages
-                for gpu_id in stage.requested_gpu_ids
-                if gpu_id in {gpu.index for gpu in gpus if gpu.error}
-            }
-        )
-        if requested_with_errors:
-            issues.append(
-                issue(
-                    "error",
-                    "gpu_inspection_failed",
-                    f"Unable to inspect requested GPU IDs: {requested_with_errors}",
-                    "resources.gpu_ids",
-                    gpu_ids=requested_with_errors,
                 )
             )
         issues.append(
             issue(
                 "info",
                 "gpu_queue",
-                "GPU availability is checked again when the queued job reaches the front.",
+                "Remote GPU availability is checked against this platform's queue when the job reaches the front.",
             )
         )
+    else:
+        gpus = gpu_monitor.snapshot()
+        healthy_gpus = [gpu for gpu in gpus if not gpu.error]
+        if not gpu_monitor.available:
+            issues.append(issue("error", "nvml_unavailable", f"NVIDIA NVML is unavailable: {gpu_monitor.error}"))
+        elif requested > len(healthy_gpus):
+            issues.append(
+                issue(
+                    "error",
+                    "gpu_count",
+                    f"Requested {requested} GPUs, but only {len(healthy_gpus)} can be inspected.",
+                    gpu_errors={gpu.index: gpu.error for gpu in gpus if gpu.error},
+                )
+            )
+        else:
+            visible_gpu_ids = {gpu.index for gpu in gpus}
+            invalid_gpu_ids = sorted(
+                {gpu_id for stage in stages for gpu_id in stage.requested_gpu_ids if gpu_id not in visible_gpu_ids}
+            )
+            if invalid_gpu_ids:
+                issues.append(
+                    issue(
+                        "error",
+                        "gpu_ids_not_visible",
+                        f"Requested GPU IDs are not visible: {invalid_gpu_ids}",
+                        "resources.gpu_ids",
+                        visible_gpu_ids=sorted(visible_gpu_ids),
+                        invalid_gpu_ids=invalid_gpu_ids,
+                    )
+                )
+            requested_with_errors = sorted(
+                {
+                    gpu_id
+                    for stage in stages
+                    for gpu_id in stage.requested_gpu_ids
+                    if gpu_id in {gpu.index for gpu in gpus if gpu.error}
+                }
+            )
+            if requested_with_errors:
+                issues.append(
+                    issue(
+                        "error",
+                        "gpu_inspection_failed",
+                        f"Unable to inspect requested GPU IDs: {requested_with_errors}",
+                        "resources.gpu_ids",
+                        gpu_ids=requested_with_errors,
+                    )
+                )
+            issues.append(
+                issue(
+                    "info",
+                    "gpu_queue",
+                    "GPU availability is checked again when the queued job reaches the front.",
+                )
+            )
 
     for configured_root in results_roots or ["results"]:
         root = Path(configured_root).expanduser()

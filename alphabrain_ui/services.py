@@ -27,6 +27,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "disk_min_free_percent": 10.0,
     "secure_cookies": False,
     "model_server_python": "",
+    "remote_training_enabled": False,
+    "remote_training_host": "",
+    "remote_training_user": "",
+    "remote_training_port": 22,
+    "remote_training_repo_root": "",
+    "remote_training_identity_file": "",
+    "remote_training_gpu_ids": [],
+    "remote_training_setup_command": "",
 }
 
 

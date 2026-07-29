@@ -1219,6 +1219,14 @@ export interface SystemSettings {
   cpu_utility_concurrency?: number;
   python_path?: string;
   model_server_python?: string;
+  remote_training_enabled?: boolean;
+  remote_training_host?: string;
+  remote_training_user?: string;
+  remote_training_port?: number;
+  remote_training_repo_root?: string;
+  remote_training_identity_file?: string;
+  remote_training_gpu_ids?: number[];
+  remote_training_setup_command?: string;
   secure_cookies?: boolean;
   secure_cookies_locked?: boolean;
   low_disk_percent?: number;

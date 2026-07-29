@@ -1457,6 +1457,16 @@ function normalizeSettings(value: unknown): SystemSettings {
     model_server_python: stringValue(row.model_server_python)
       || stringValue(environment.ALPHABRAIN_PYTHON)
       || undefined,
+    remote_training_enabled: Boolean(row.remote_training_enabled),
+    remote_training_host: stringValue(row.remote_training_host) || undefined,
+    remote_training_user: stringValue(row.remote_training_user) || undefined,
+    remote_training_port: numberValue(row.remote_training_port, 22),
+    remote_training_repo_root: stringValue(row.remote_training_repo_root) || undefined,
+    remote_training_identity_file: stringValue(row.remote_training_identity_file) || undefined,
+    remote_training_gpu_ids: Array.isArray(row.remote_training_gpu_ids)
+      ? row.remote_training_gpu_ids.map((value) => Number(value)).filter(Number.isInteger)
+      : [],
+    remote_training_setup_command: stringValue(row.remote_training_setup_command) || undefined,
     secure_cookies: Boolean(row.secure_cookies),
     secure_cookies_locked: Boolean(row.secure_cookies_locked),
     low_disk_percent: numberValue(row.disk_min_free_percent, 10),
@@ -1477,6 +1487,14 @@ function settingsPayload(value: Partial<SystemSettings>): Record<string, unknown
   if (value.pretrained_root != null) payload.pretrained_root = value.pretrained_root;
   if (value.cpu_utility_concurrency != null) payload.cpu_utility_concurrency = value.cpu_utility_concurrency;
   if (value.model_server_python != null) payload.model_server_python = value.model_server_python;
+  if (value.remote_training_enabled != null) payload.remote_training_enabled = value.remote_training_enabled;
+  if (value.remote_training_host != null) payload.remote_training_host = value.remote_training_host;
+  if (value.remote_training_user != null) payload.remote_training_user = value.remote_training_user;
+  if (value.remote_training_port != null) payload.remote_training_port = value.remote_training_port;
+  if (value.remote_training_repo_root != null) payload.remote_training_repo_root = value.remote_training_repo_root;
+  if (value.remote_training_identity_file != null) payload.remote_training_identity_file = value.remote_training_identity_file;
+  if (value.remote_training_gpu_ids != null) payload.remote_training_gpu_ids = value.remote_training_gpu_ids.map(Number);
+  if (value.remote_training_setup_command != null) payload.remote_training_setup_command = value.remote_training_setup_command;
   if (value.secure_cookies != null) payload.secure_cookies = value.secure_cookies;
   if (value.low_disk_percent != null) payload.disk_min_free_percent = value.low_disk_percent;
   if (value.low_disk_gib != null) payload.disk_min_free_gib = value.low_disk_gib;
