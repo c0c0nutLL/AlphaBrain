@@ -4,7 +4,7 @@ import { Alert, Button, Card, Col, Progress, Row, Space, Statistic, Table, Tag, 
 import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { api, listFrom } from '../api/client';
+import { api } from '../api/client';
 import type { Experiment } from '../api/types';
 import { AsyncState } from '../components/AsyncState';
 import { GpuCard } from '../components/GpuCard';
@@ -42,6 +42,7 @@ export function DashboardPage() {
   const cpuPercent = boundedPercent(system?.cpu_percent);
   const memoryPercent = boundedPercent(system?.memory?.percent);
   const recent = dashboard.data?.recent_experiments ?? [];
+  const gpuItems = gpus.data?.items ?? [];
 
   return (
     <div className="page">
@@ -63,8 +64,9 @@ export function DashboardPage() {
             title={<Space><CloudServerOutlined />{t('dashboard.gpuTitle')}</Space>}
             extra={<Button type="text" icon={<ReloadOutlined />} onClick={() => void gpus.refetch()} />}
           >
-            <AsyncState loading={gpus.isLoading} error={gpus.error} empty={!listFrom(gpus.data).length} onRetry={() => void gpus.refetch()}>
-              <div className="gpu-grid">{listFrom(gpus.data).map((gpu) => <GpuCard key={gpu.id ?? gpu.index} gpu={gpu} />)}</div>
+            <AsyncState loading={gpus.isLoading} error={gpus.error} empty={!gpuItems.length && !gpus.data?.error} onRetry={() => void gpus.refetch()}>
+              {gpus.data?.error ? <Alert type="error" showIcon message={gpus.data.available ? t('dashboard.probeFailed') : t('dashboard.monitorUnavailable')} description={gpus.data.error} /> : null}
+              <div className="gpu-grid">{gpuItems.map((gpu) => <GpuCard key={gpu.id ?? gpu.index} gpu={gpu} />)}</div>
             </AsyncState>
           </Card>
           <div className="dashboard-side">

@@ -1047,9 +1047,18 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         await manager.start()
         await utility_manager.start()
-        yield
-        await utility_manager.shutdown()
-        await manager.shutdown()
+        try:
+            yield
+        finally:
+            try:
+                await utility_manager.shutdown()
+            finally:
+                try:
+                    await manager.shutdown()
+                finally:
+                    close_gpu_monitor = getattr(gpu_monitor, "close", None)
+                    if callable(close_gpu_monitor):
+                        close_gpu_monitor()
 
     app = FastAPI(
         title="AlphaBrain UI API",

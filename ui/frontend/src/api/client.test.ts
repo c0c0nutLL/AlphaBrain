@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, isRecord, listFrom } from './client';
+import { api, healthyGpus, isRecord, listFrom } from './client';
 import type { DeploymentCreateRequest, EvaluationCreateRequest, ExperimentSpec, WandbRunConfig } from './types';
 
 function jsonResponse(value: unknown): Response {
@@ -31,13 +31,26 @@ describe('API response normalization', () => {
       }))
       .mockResolvedValueOnce(jsonResponse({
         available: true,
-        items: [{ index: 0, name: 'RTX 4090', memory_total_bytes: 24 * 1024 ** 3, memory_used_bytes: 6 * 1024 ** 3, utilization_percent: 42, processes: [], available: true }],
+        error: 'GPU 1 memory: device lost',
+        items: [
+          { index: 0, name: 'RTX 4090', memory_total_bytes: 24 * 1024 ** 3, memory_used_bytes: 6 * 1024 ** 3, utilization_percent: 42, processes: [], available: true },
+          { index: 1, name: 'GPU 1', memory_total_bytes: 0, memory_used_bytes: 0, utilization_percent: 0, processes: [], available: false, error: 'memory: device lost' },
+        ],
       }));
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(api.setup.status()).resolves.toMatchObject({ configured: true, mode: 'laboratory' });
     await expect(api.auth.me()).resolves.toMatchObject({ username: 'alice', locale: 'en-US', theme: 'dark', gpu_refresh_interval_seconds: 30, experimental_available: true });
-    await expect(api.gpus()).resolves.toMatchObject([{ index: 0, memory_total_mb: 24576, memory_used_mb: 6144, available: true }]);
+    const inventory = await api.gpus();
+    expect(inventory).toMatchObject({
+      available: true,
+      error: 'GPU 1 memory: device lost',
+      items: [
+        { index: 0, memory_total_mb: 24576, memory_used_mb: 6144, available: true },
+        { index: 1, available: false, error: 'memory: device lost' },
+      ],
+    });
+    expect(healthyGpus(inventory)).toMatchObject([{ index: 0, name: 'RTX 4090' }]);
   });
 
   it('uses the backend startup suggestion before setup', async () => {

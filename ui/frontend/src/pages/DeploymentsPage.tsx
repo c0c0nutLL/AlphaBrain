@@ -31,7 +31,7 @@ import dayjs from 'dayjs';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { api } from '../api/client';
+import { api, healthyGpus } from '../api/client';
 import type {
   DeploymentCreateRequest,
   DeploymentMutationResult,
@@ -122,7 +122,8 @@ function CreateDeploymentModal({ open, onClose, onCreated }: {
   const checkpoints = useQuery({ queryKey: ['checkpoints'], queryFn: api.checkpoints, enabled: open });
   const gpus = useQuery({ queryKey: ['gpus'], queryFn: api.gpus, enabled: open, refetchInterval: open ? gpuRefreshInterval : false });
   const values = Form.useWatch([], form) as DeploymentFormValues | undefined;
-  const visibleGpuCount = gpus.data?.length;
+  const visibleGpus = healthyGpus(gpus.data);
+  const visibleGpuCount = visibleGpus.length;
   const singleGpu = visibleGpuCount === 1;
   const selectedCombination = capabilities.data?.combinations.find((item) => item.id === values?.combination_id);
   const selectedAdapter = capabilities.data?.adapters.find((item) => item.id === selectedCombination?.adapter_id);
@@ -371,8 +372,8 @@ function CreateDeploymentModal({ open, onClose, onCreated }: {
                   showIcon
                   message={t('builder.singleGpuDetected')}
                   description={t('builder.singleGpuDescription', {
-                    index: gpus.data?.[0]?.index ?? 0,
-                    name: gpus.data?.[0]?.name ?? 'GPU',
+                    index: visibleGpus[0]?.index ?? 0,
+                    name: visibleGpus[0]?.name ?? 'GPU',
                   })}
                 />
               ) : (
@@ -382,7 +383,7 @@ function CreateDeploymentModal({ open, onClose, onCreated }: {
                       <Radio.Group options={[{ label: t('builder.autoGpu'), value: 'auto' }, { label: t('builder.fixedGpu'), value: 'fixed' }]} />
                     </Form.Item>
                     <Form.Item name={['resources', 'gpu_count']} label={t('builder.gpuCount')} rules={[{ required: true }]}>
-                      <InputNumber className="full-width" min={1} max={Math.max(1, gpus.data?.length ?? 8)} precision={0} />
+                      <InputNumber className="full-width" min={1} max={Math.max(1, visibleGpus.length || 8)} precision={0} />
                     </Form.Item>
                   </div>
                   {resourceStrategy === 'fixed' ? (
@@ -395,7 +396,7 @@ function CreateDeploymentModal({ open, onClose, onCreated }: {
                           : Promise.reject(new Error(t('deployment.gpuSelectionCount'))),
                       }]}
                     >
-                      <Select mode="multiple" options={(gpus.data ?? []).map((gpu) => ({ value: gpu.index, label: `GPU ${gpu.index} · ${gpu.name}` }))} />
+                      <Select mode="multiple" options={visibleGpus.map((gpu) => ({ value: gpu.index, label: `GPU ${gpu.index} · ${gpu.name}` }))} />
                     </Form.Item>
                   ) : null}
                 </>

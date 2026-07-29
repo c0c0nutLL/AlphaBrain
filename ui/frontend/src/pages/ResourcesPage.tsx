@@ -129,9 +129,9 @@ export function ResourcesPage() {
           ]} />
         </Card>
       </AsyncState>
-      <Modal open={Boolean(action)} title={action ? t(`resources.action.${action.kind}`) : ''} okText={t('common.confirm')} onCancel={() => { setAction(undefined); form.resetFields(); }} confirmLoading={submitAction.isPending} onOk={() => void form.validateFields().then((values) => submitAction.mutate(values))}>
+      <Modal open={Boolean(action)} title={action ? t(`resources.action.${action.kind}`) : ''} okText={t('common.confirm')} onCancel={() => { setAction(undefined); form.resetFields(); }} confirmLoading={submitAction.isPending} onOk={() => form.submit()}>
         {action?.kind === 'preprocess' ? <Alert showIcon type="warning" message={t('resources.gpuQueueHint')} style={{ marginBottom: 16 }} /> : null}
-        <Form form={form} layout="vertical">
+        <Form form={form} layout="vertical" onFinish={(values) => submitAction.mutate(values)}>
           {action?.kind === 'install' ? <Form.Item name="target_root" label={t('resources.targetRoot')} rules={[{ required: true }]}><Input /></Form.Item> : null}
           {action?.kind === 'register' ? <Form.Item name="path" label={t('resources.path')} rules={[{ required: true }]}><Input /></Form.Item> : null}
           {action?.kind === 'preprocess' ? <>

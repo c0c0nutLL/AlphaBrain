@@ -37,6 +37,7 @@ import type {
   Experiment,
   ExperimentSpec,
   GPU,
+  GPUInventory,
   InferenceRun,
   Job,
   JobStatus,
@@ -520,12 +521,26 @@ function normalizeGPU(value: unknown): GPU {
     temperature_c: typeof row.temperature_c === 'number' ? row.temperature_c : undefined,
     available: Boolean(row.available),
     external_processes: processes.length,
+    error: stringValue(row.error) || undefined,
     job: row.reserved_by_job_id ? {
       id: stringValue(row.reserved_by_job_id),
       name: `Job ${stringValue(row.reserved_by_job_id).slice(0, 8)}`,
       status: 'running',
     } : undefined,
   };
+}
+
+function normalizeGPUInventory(value: unknown): GPUInventory {
+  const row = isRecord(value) ? value : {};
+  return {
+    available: Boolean(row.available),
+    error: stringValue(row.error) || undefined,
+    items: recordArray(row.items).map(normalizeGPU),
+  };
+}
+
+export function healthyGpus(value: GPUInventory | undefined | null): GPU[] {
+  return value?.items.filter((gpu) => !gpu.error) ?? [];
 }
 
 function normalizeStorage(value: unknown): StorageSummary | undefined {
@@ -1606,10 +1621,7 @@ export const api = {
   },
   capabilities: async (includeExperimental = false) =>
     normalizeCapabilities(await request<unknown>(`/capabilities?include_experimental=${includeExperimental}`)),
-  gpus: async (): Promise<GPU[]> => {
-    const raw = await request<Record<string, unknown>>('/gpus');
-    return recordArray(raw.items).map(normalizeGPU);
-  },
+  gpus: async (): Promise<GPUInventory> => normalizeGPUInventory(await request<unknown>('/gpus')),
   storage: async () => request<unknown[]>('/storage'),
   remoteTraining: {
     metrics: async (): Promise<RemoteServerMetrics> =>

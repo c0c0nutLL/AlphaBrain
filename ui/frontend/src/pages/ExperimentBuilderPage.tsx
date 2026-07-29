@@ -42,7 +42,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import YAML from 'yaml';
-import { api } from '../api/client';
+import { api, healthyGpus } from '../api/client';
 import type {
   Capability,
   CapabilityKind,
@@ -194,7 +194,8 @@ export function ExperimentBuilderPage() {
   const registeredDatasetsQuery = useQuery({ queryKey: ['datasets'], queryFn: api.datasets.list });
   const datasetMixturesQuery = useQuery({ queryKey: ['dataset-mixtures'], queryFn: api.datasets.mixtures.list });
   const gpuQuery = useQuery({ queryKey: ['gpus'], queryFn: api.gpus, refetchInterval: gpuRefreshInterval });
-  const detectedGpuCount = gpuQuery.data?.length;
+  const visibleGpus = healthyGpus(gpuQuery.data);
+  const detectedGpuCount = visibleGpus.length;
   const singleGpu = detectedGpuCount === 1;
 
   useEffect(() => {
@@ -896,8 +897,8 @@ export function ExperimentBuilderPage() {
                         showIcon
                         message={t('builder.singleGpuDetected')}
                         description={t('builder.singleGpuDescription', {
-                          index: gpuQuery.data?.[0]?.index ?? 0,
-                          name: gpuQuery.data?.[0]?.name ?? 'GPU',
+                          index: visibleGpus[0]?.index ?? 0,
+                          name: visibleGpus[0]?.name ?? 'GPU',
                         })}
                       />
                     ) : (
@@ -933,7 +934,7 @@ export function ExperimentBuilderPage() {
                               mode="multiple"
                               placeholder="0, 1"
                               onChange={(values: number[]) => form.setFieldValue('gpu_count', values.length)}
-                              options={(gpuQuery.data ?? []).map((gpu) => ({ value: gpu.index, label: `GPU ${gpu.index} · ${gpu.name}${gpu.available ? '' : ` · ${t('dashboard.occupied')}`}` }))}
+                              options={visibleGpus.map((gpu) => ({ value: gpu.index, label: `GPU ${gpu.index} · ${gpu.name}${gpu.available ? '' : ` · ${t('dashboard.occupied')}`}` }))}
                             />
                           </Form.Item>
                         ) : null}

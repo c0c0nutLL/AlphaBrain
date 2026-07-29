@@ -67,8 +67,8 @@ export function UsersPage() {
           />
         </AsyncState>
       </Card>
-      <Modal title={editing ? t('common.edit') : t('users.add')} open={open} onCancel={() => setOpen(false)} okText={t('common.save')} confirmLoading={save.isPending} onOk={() => void form.validateFields().then((values) => save.mutate(values))}>
-        <Form<UserForm> form={form} layout="vertical" initialValues={{ role: 'researcher', active: true }}>
+      <Modal title={editing ? t('common.edit') : t('users.add')} open={open} onCancel={() => setOpen(false)} okText={t('common.save')} confirmLoading={save.isPending} onOk={() => form.submit()}>
+        <Form<UserForm> form={form} layout="vertical" initialValues={{ role: 'researcher', active: true }} onFinish={(values) => save.mutate(values)}>
           <Form.Item name="username" label={t('users.username')} rules={[{ required: true }]}><Input disabled={Boolean(editing)} autoComplete="off" /></Form.Item>
           <Form.Item name="display_name" label={t('users.displayName')}><Input /></Form.Item>
           <Form.Item name="role" label={t('users.role')} rules={[{ required: true }]}><Radio.Group options={[{ label: t('users.researcher'), value: 'researcher' }, { label: t('users.administrator'), value: 'administrator' }]} /></Form.Item>

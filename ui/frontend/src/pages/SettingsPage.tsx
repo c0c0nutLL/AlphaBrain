@@ -76,8 +76,7 @@ export function SettingsPage() {
   });
   const activeTab = searchParams.get('tab') ?? 'general';
 
-  const savePreferences = async () => {
-    const values = await preferenceForm.validateFields();
+  const savePreferences = (values: Partial<User>) => {
     const currentlyEnabled = Boolean(me.data?.experimental_enabled);
     if (!currentlyEnabled && values.experimental_enabled) {
       Modal.confirm({
@@ -146,7 +145,7 @@ export function SettingsPage() {
                 children: (
                   <div className="settings-panel">
                     <Typography.Title level={4}>{t('settings.general')}</Typography.Title>
-                    <Form<SystemSettings> form={generalForm} layout="vertical" disabled={!isAdmin}>
+                    <Form<SystemSettings> form={generalForm} layout="vertical" disabled={!isAdmin} onFinish={(values) => updateSystem.mutate(values)}>
                       <Form.Item name="mode" label={t('settings.mode')}>
                         <Radio.Group className="mode-picker" optionType="button">
                           <Radio.Button value="personal"><b>{t('settings.personal')}</b><small>{t('settings.personalDesc')}</small></Radio.Button>
@@ -160,7 +159,7 @@ export function SettingsPage() {
                         <Switch disabled={settings.data?.secure_cookies_locked} />
                       </Form.Item>
                       {!isAdmin ? <Alert type="info" showIcon message={t('settings.adminRequired')} /> : null}
-                      {isAdmin ? <Button type="primary" icon={<SaveOutlined />} loading={updateSystem.isPending} onClick={() => void generalForm.validateFields().then((values) => updateSystem.mutate(values))}>{t('common.save')}</Button> : null}
+                      {isAdmin ? <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={updateSystem.isPending}>{t('common.save')}</Button> : null}
                     </Form>
                   </div>
                 ),
@@ -170,7 +169,7 @@ export function SettingsPage() {
                 children: (
                   <div className="settings-panel">
                     <Typography.Title level={4}>{t('settings.environment')}</Typography.Title>
-                    <Form<SystemSettings> form={environmentForm} layout="vertical" disabled={!isAdmin}>
+                    <Form<SystemSettings> form={environmentForm} layout="vertical" disabled={!isAdmin} onFinish={(values) => updateSystem.mutate(values)}>
                       <Form.Item name="results_roots" label={t('settings.resultsRoots')} extra={t('settings.resultsRootsHint')} rules={[{ required: true, type: 'array', min: 1 }]}><Select mode="tags" tokenSeparators={[',']} placeholder="results/" /></Form.Item>
                       <Form.Item name="storage_monitor_path" label={t('settings.storageMonitorPath')} extra={t('settings.storageMonitorPathHint')}>
                         <ServerDirectoryPicker placeholder={t('settings.storageMonitorPathPlaceholder')} />
@@ -217,7 +216,7 @@ export function SettingsPage() {
                       <Form.Item name={['environment', 'HF_HOME']} label="HF_HOME"><Input placeholder="~/.cache/huggingface" /></Form.Item>
                       <Form.Item name={['environment', 'WANDB_BASE_URL']} label="WANDB_BASE_URL"><Input placeholder="https://api.wandb.ai" /></Form.Item>
                       <Form.Item name={['environment', 'WANDB_MODE']} label="WANDB_MODE"><Input placeholder="online / offline / disabled" /></Form.Item>
-                      {isAdmin ? <Button type="primary" icon={<SaveOutlined />} loading={updateSystem.isPending} onClick={() => void environmentForm.validateFields().then((values) => updateSystem.mutate(values))}>{t('common.save')}</Button> : null}
+                      {isAdmin ? <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={updateSystem.isPending}>{t('common.save')}</Button> : null}
                     </Form>
                     <Card
                       size="small"
@@ -279,9 +278,9 @@ export function SettingsPage() {
                   <div className="settings-panel">
                     <Typography.Title level={4}>{t('settings.experimental')}</Typography.Title>
                     <Alert type="warning" showIcon message={t('settings.allowExperimentalDesc')} description={t('builder.experimentalRisk')} />
-                    <Form<SystemSettings> form={experimentalForm} layout="vertical" disabled={!isAdmin}>
+                    <Form<SystemSettings> form={experimentalForm} layout="vertical" disabled={!isAdmin} onFinish={(values) => updateSystem.mutate(values)}>
                       <Form.Item name="experimental_allowed" label={t('settings.allowExperimental')} valuePropName="checked"><Switch /></Form.Item>
-                      {isAdmin ? <Button type="primary" icon={<SafetyCertificateOutlined />} loading={updateSystem.isPending} onClick={() => void experimentalForm.validateFields().then((values) => updateSystem.mutate(values))}>{t('common.save')}</Button> : null}
+                      {isAdmin ? <Button type="primary" htmlType="submit" icon={<SafetyCertificateOutlined />} loading={updateSystem.isPending}>{t('common.save')}</Button> : null}
                     </Form>
                   </div>
                 ),
@@ -291,7 +290,7 @@ export function SettingsPage() {
                 children: (
                   <div className="settings-panel">
                     <Typography.Title level={4}>{t('settings.preferences')}</Typography.Title>
-                    <Form<Partial<User>> form={preferenceForm} layout="vertical">
+                    <Form<Partial<User>> form={preferenceForm} layout="vertical" onFinish={savePreferences}>
                       <Form.Item name="locale" label={t('common.language')}><Select options={[{ label: '简体中文', value: 'zh-CN' satisfies Language }, { label: 'English', value: 'en-US' satisfies Language }]} /></Form.Item>
                       <Form.Item name="theme" label={t('common.theme')}><Radio.Group options={[{ label: t('common.light'), value: 'light' satisfies ThemeMode }, { label: t('common.dark'), value: 'dark' satisfies ThemeMode }]} /></Form.Item>
                       <Form.Item
@@ -307,7 +306,7 @@ export function SettingsPage() {
                         <InputNumber min={0} max={3600} precision={0} step={1} addonAfter={t('settings.gpuRefreshSecondsUnit')} className="full-width" />
                       </Form.Item>
                       <Form.Item name="experimental_enabled" label={t('settings.userExperimental')} valuePropName="checked"><Switch disabled={!(settings.data?.experimental_allowed ?? me.data?.experimental_available)} /></Form.Item>
-                      <Button type="primary" icon={<SaveOutlined />} loading={updatePreferences.isPending} onClick={() => void savePreferences()}>{t('common.save')}</Button>
+                      <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={updatePreferences.isPending}>{t('common.save')}</Button>
                     </Form>
                   </div>
                 ),
