@@ -41,14 +41,14 @@ class RemoteTrainingConfig:
     def target(self) -> str:
         return f"{self.user}@{self.host}" if self.user else self.host
 
-    def ssh_command(self) -> list[str]:
+    def ssh_command(self, *, connect_timeout: int = 10) -> list[str]:
         command = [
             "ssh",
             "-T",
             "-o",
             "BatchMode=yes",
             "-o",
-            "ConnectTimeout=10",
+            f"ConnectTimeout={connect_timeout}",
             "-o",
             "StrictHostKeyChecking=yes",
             "-p",

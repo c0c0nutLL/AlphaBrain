@@ -864,6 +864,32 @@ Object.assign(en.settings, {
   remoteTrainingSetupCommandHint: 'Runs in the repository before training, for example: source .venv/bin/activate.',
 });
 
+Object.assign(zh.dashboard, {
+  remoteServerTitle: '远程训练服务器',
+  remoteCollecting: '正在连接',
+  remoteConnected: '已连接',
+  remoteDisconnected: '连接失败',
+  remoteMetricsStale: '正在显示上一次采集的数据',
+  remoteMetricsUnavailable: '无法读取远程服务器数据',
+  remoteGpuTitle: '远端 GPU',
+  remoteGpuUnavailable: '无法读取远端 GPU',
+  remoteSystemTitle: '远端系统资源',
+  remoteCollectedAt: '采集时间',
+});
+
+Object.assign(en.dashboard, {
+  remoteServerTitle: 'Remote training server',
+  remoteCollecting: 'Connecting',
+  remoteConnected: 'Connected',
+  remoteDisconnected: 'Disconnected',
+  remoteMetricsStale: 'Showing the last collected snapshot',
+  remoteMetricsUnavailable: 'Remote server metrics are unavailable',
+  remoteGpuTitle: 'Remote GPUs',
+  remoteGpuUnavailable: 'Remote GPU metrics are unavailable',
+  remoteSystemTitle: 'Remote system resources',
+  remoteCollectedAt: 'Collected',
+});
+
 const savedLanguage = localStorage.getItem('alphabrain-language');
 void i18n.use(initReactI18next).init({
   resources: {

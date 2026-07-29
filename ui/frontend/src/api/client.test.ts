@@ -417,6 +417,7 @@ describe('API response normalization', () => {
           load: { one_minute: 1.2, five_minutes: 0.8, fifteen_minutes: 0.4 },
           memory: { total_bytes: 1000, used_bytes: 400, available_bytes: 600, percent: 40 },
         },
+        remote_training: { enabled: true, target: 'researcher@gpu.example.edu' },
       }))
       .mockResolvedValueOnce(jsonResponse([{ path: '/results', used_bytes: 90, total_bytes: 100, free_bytes: 10, low_space: true }]))
       .mockResolvedValueOnce(jsonResponse([{ id: 'j1', experiment_id: 'e1', owner_id: 'u1', name: 'Run', status: 'queued', requested_gpu_ids: [], assigned_gpu_ids: [] }]))
@@ -434,6 +435,7 @@ describe('API response normalization', () => {
         load: { one_minute: 1.2, five_minutes: 0.8, fifteen_minutes: 0.4 },
         memory: { total_bytes: 1000, used_bytes: 400, available_bytes: 600, percent: 40 },
       },
+      remote_training: { enabled: true, target: 'researcher@gpu.example.edu' },
     });
     await expect(api.jobs.list()).resolves.toMatchObject([{ id: 'j1', owner_id: 'u1' }]);
     await expect(api.templates.list()).resolves.toMatchObject([{
@@ -445,6 +447,42 @@ describe('API response normalization', () => {
 
     const [, init] = fetchMock.mock.calls[4] as [string, RequestInit];
     expect(init.method).toBe('DELETE');
+  });
+
+  it('normalizes remote training server metrics', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({
+      enabled: true,
+      available: true,
+      target: 'researcher@gpu.example.edu',
+      hostname: 'gpu-node-01',
+      collected_at: '2026-07-29T08:00:00Z',
+      gpus: [{
+        index: 2,
+        uuid: 'GPU-2',
+        name: 'RTX 4090',
+        memory_total_bytes: 24 * 1024 ** 3,
+        memory_used_bytes: 8 * 1024 ** 3,
+        utilization_percent: 60,
+        processes: [],
+        available: true,
+      }],
+      system_metrics: {
+        available: true,
+        cpu_percent: 30,
+        memory: { total_bytes: 1000, used_bytes: 500, available_bytes: 500, percent: 50 },
+      },
+      storage: { path: '/srv/AlphaBrain', used_bytes: 250, total_bytes: 1000, free_bytes: 750 },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(api.remoteTraining.metrics()).resolves.toMatchObject({
+      enabled: true,
+      available: true,
+      hostname: 'gpu-node-01',
+      gpus: [{ index: 2, memory_total_mb: 24576, memory_used_mb: 8192, available: true }],
+      system_metrics: { cpu_percent: 30, memory: { percent: 50 } },
+      storage: { path: '/srv/AlphaBrain', free_bytes: 750 },
+    });
   });
 
   it('accepts the dashboard system compatibility alias and structured telemetry errors', async () => {

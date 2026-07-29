@@ -76,6 +76,26 @@ export interface SystemMetrics {
   };
 }
 
+export interface RemoteTrainingStatus {
+  enabled: boolean;
+  target?: string;
+}
+
+export interface RemoteServerMetrics extends RemoteTrainingStatus {
+  available: boolean;
+  hostname?: string;
+  collected_at?: string;
+  stale?: boolean;
+  gpus: GPU[];
+  system_metrics?: SystemMetrics;
+  storage?: StorageSummary;
+  gpu_error?: string;
+  error?: {
+    code: string;
+    message?: string;
+  };
+}
+
 export interface Experiment {
   id: string;
   name: string;
@@ -1035,6 +1055,7 @@ export interface DashboardData {
   system_metrics?: SystemMetrics;
   /** Compatibility alias for servers that expose the snapshot as `system`. */
   system?: SystemMetrics;
+  remote_training?: RemoteTrainingStatus;
 }
 
 export interface MetricPoint {

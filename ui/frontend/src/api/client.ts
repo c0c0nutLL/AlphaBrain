@@ -49,6 +49,7 @@ import type {
   PreflightResult,
   ReferenceResultsMatch,
   ReferenceResultsSnapshot,
+  RemoteServerMetrics,
   RegistryBrowseResponse,
   RegistryOverlayPreview,
   RegistryOverlayState,
@@ -565,6 +566,27 @@ function normalizeSystemMetrics(value: unknown): SystemMetrics | undefined {
     memory: normalizedMemory,
     error: error ? {
       code: stringValue(error.code, 'system_metrics_unavailable'),
+      message: stringValue(error.message) || undefined,
+    } : undefined,
+  };
+}
+
+function normalizeRemoteServerMetrics(value: unknown): RemoteServerMetrics {
+  const row = isRecord(value) ? value : {};
+  const error = isRecord(row.error) ? row.error : undefined;
+  return {
+    enabled: Boolean(row.enabled),
+    available: Boolean(row.available),
+    target: stringValue(row.target) || undefined,
+    hostname: stringValue(row.hostname) || undefined,
+    collected_at: stringValue(row.collected_at) || undefined,
+    stale: Boolean(row.stale),
+    gpus: recordArray(row.gpus).map(normalizeGPU),
+    system_metrics: normalizeSystemMetrics(row.system_metrics),
+    storage: normalizeStorage(row.storage),
+    gpu_error: stringValue(row.gpu_error) || undefined,
+    error: error ? {
+      code: stringValue(error.code, 'remote_metrics_unavailable'),
       message: stringValue(error.message) || undefined,
     } : undefined,
   };
@@ -1572,6 +1594,10 @@ export const api = {
       storage: normalizeStorage(storage[0]),
       system_metrics: systemMetrics,
       system: systemMetrics,
+      remote_training: isRecord(raw.remote_training) ? {
+        enabled: Boolean(raw.remote_training.enabled),
+        target: stringValue(raw.remote_training.target) || undefined,
+      } : { enabled: false },
     };
   },
   capabilities: async (includeExperimental = false) =>
@@ -1581,6 +1607,10 @@ export const api = {
     return recordArray(raw.items).map(normalizeGPU);
   },
   storage: async () => request<unknown[]>('/storage'),
+  remoteTraining: {
+    metrics: async (): Promise<RemoteServerMetrics> =>
+      normalizeRemoteServerMetrics(await request<unknown>('/remote-training/metrics')),
+  },
   datasets: {
     directories: (path?: string): Promise<DirectoryListing> =>
       request<DirectoryListing>(`/datasets/directories${path ? `?path=${encodeURIComponent(path)}` : ''}`),

@@ -1,6 +1,6 @@
 import { ArrowRightOutlined, CloudServerOutlined, DashboardOutlined, DatabaseOutlined, ExperimentOutlined, PlusOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Col, Progress, Row, Space, Statistic, Table, Typography } from 'antd';
+import { Alert, Button, Card, Col, Progress, Row, Space, Statistic, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -26,6 +26,14 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const dashboard = useQuery({ queryKey: ['dashboard'], queryFn: api.dashboard, refetchInterval: 15_000 });
   const gpus = useQuery({ queryKey: ['gpus'], queryFn: api.gpus, refetchInterval: 5_000 });
+  const remoteTrainingEnabled = Boolean(dashboard.data?.remote_training?.enabled);
+  const remoteMetrics = useQuery({
+    queryKey: ['remote-training-metrics'],
+    queryFn: api.remoteTraining.metrics,
+    enabled: remoteTrainingEnabled,
+    refetchInterval: 10_000,
+    retry: false,
+  });
   const storage = dashboard.data?.storage;
   const system = dashboard.data?.system_metrics ?? dashboard.data?.system;
   const storagePercent = storage?.total_bytes ? Math.round((storage.used_bytes / storage.total_bytes) * 100) : 0;
@@ -118,6 +126,77 @@ export function DashboardPage() {
             </Card>
           </div>
         </div>
+
+        {remoteTrainingEnabled ? (
+          <Card
+            className="remote-server-card"
+            title={<Space><CloudServerOutlined />{t('dashboard.remoteServerTitle')}</Space>}
+            extra={(
+              <Space wrap>
+                <Typography.Text type="secondary">
+                  {remoteMetrics.data?.hostname ?? dashboard.data?.remote_training?.target}
+                </Typography.Text>
+                <Tag color={remoteMetrics.isLoading ? 'blue' : remoteMetrics.data?.available ? 'green' : 'red'}>
+                  {remoteMetrics.isLoading
+                    ? t('dashboard.remoteCollecting')
+                    : remoteMetrics.data?.available ? t('dashboard.remoteConnected') : t('dashboard.remoteDisconnected')}
+                </Tag>
+                <Button type="text" icon={<ReloadOutlined />} onClick={() => void remoteMetrics.refetch()} />
+              </Space>
+            )}
+          >
+            <AsyncState loading={remoteMetrics.isLoading} error={remoteMetrics.error} onRetry={() => void remoteMetrics.refetch()}>
+              {remoteMetrics.data?.error ? (
+                <Alert
+                  type={remoteMetrics.data.stale ? 'warning' : 'error'}
+                  showIcon
+                  message={remoteMetrics.data.stale ? t('dashboard.remoteMetricsStale') : t('dashboard.remoteMetricsUnavailable')}
+                  description={remoteMetrics.data.error.message}
+                />
+              ) : null}
+              {remoteMetrics.data?.available ? (
+                <div className="remote-server-grid">
+                  <div>
+                    <Typography.Title level={5}>{t('dashboard.remoteGpuTitle')}</Typography.Title>
+                    {remoteMetrics.data.gpu_error ? (
+                      <Alert type="warning" showIcon message={t('dashboard.remoteGpuUnavailable')} description={remoteMetrics.data.gpu_error} />
+                    ) : null}
+                    {remoteMetrics.data.gpus.length ? (
+                      <div className="gpu-grid">
+                        {remoteMetrics.data.gpus.map((gpu) => <GpuCard key={gpu.id ?? gpu.index} gpu={gpu} />)}
+                      </div>
+                    ) : (
+                      <Typography.Text type="secondary">{t('common.noData')}</Typography.Text>
+                    )}
+                  </div>
+                  <div className="remote-server-summary">
+                    <Typography.Title level={5}>{t('dashboard.remoteSystemTitle')}</Typography.Title>
+                    <div className="remote-resource-row">
+                      <Typography.Text>{t('dashboard.cpuUsage')}</Typography.Text>
+                      <Progress percent={boundedPercent(remoteMetrics.data.system_metrics?.cpu_percent)} size="small" />
+                    </div>
+                    <div className="remote-resource-row">
+                      <Typography.Text>{t('dashboard.ramUsage')}</Typography.Text>
+                      <Progress percent={boundedPercent(remoteMetrics.data.system_metrics?.memory?.percent)} size="small" strokeColor="#6f52c7" />
+                    </div>
+                    {remoteMetrics.data.storage ? (
+                      <div className="remote-storage-summary">
+                        <Typography.Text strong>{t('dashboard.storageTitle')}</Typography.Text>
+                        <Typography.Text>{formatBytes(remoteMetrics.data.storage.free_bytes)} {t('dashboard.availableSpace')}</Typography.Text>
+                        <Typography.Text type="secondary">{remoteMetrics.data.storage.path}</Typography.Text>
+                      </div>
+                    ) : null}
+                    {remoteMetrics.data.collected_at ? (
+                      <Typography.Text type="secondary">
+                        {t('dashboard.remoteCollectedAt')}: {dayjs(remoteMetrics.data.collected_at).format('HH:mm:ss')}
+                      </Typography.Text>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+            </AsyncState>
+          </Card>
+        ) : null}
 
         <Card
           className="recent-card"

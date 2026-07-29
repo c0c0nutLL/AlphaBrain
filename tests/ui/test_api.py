@@ -231,7 +231,44 @@ def test_settings_reject_secrets_and_experimental_is_double_gated(tmp_path: Path
             str(primary_results),
             str(secondary_results),
         ]
-        assert client.get("/api/v1/dashboard").status_code == 200
+        dashboard = client.get("/api/v1/dashboard")
+        assert dashboard.status_code == 200
+        assert dashboard.json()["remote_training"] == {"enabled": False, "target": ""}
+        assert client.get("/api/v1/remote-training/metrics").json() == {"enabled": False}
+
+
+def test_ssh_settings_save_ignores_unchanged_missing_default_dataset_root(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("alphabrain_ui.app.shutil.which", lambda name: f"/usr/bin/{name}")
+    with TestClient(make_app(tmp_path)) as client:
+        client.post(
+            "/api/v1/setup",
+            json={"mode": "personal", "username": "admin", "display_name": "Admin", "password": ""},
+        )
+
+        response = client.patch(
+            "/api/v1/settings",
+            json={
+                "dataset_roots": ["data"],
+                "remote_training_enabled": True,
+                "remote_training_host": "180.76.111.187",
+                "remote_training_user": "root",
+                "remote_training_port": 5918,
+                "remote_training_repo_root": "/share/chenhonghan/AlphaBrain",
+                "remote_training_gpu_ids": [0],
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["dataset_roots"] == ["data"]
+        assert response.json()["remote_training_host"] == "180.76.111.187"
+        assert response.json()["remote_training_port"] == 5918
+
+        changed_missing_root = client.patch(
+            "/api/v1/settings",
+            json={"dataset_roots": [str(tmp_path / "missing-dataset")]},
+        )
+        assert changed_missing_root.status_code == 422
+        assert changed_missing_root.json()["detail"]["code"] == "dataset_root_unavailable"
 
 
 def test_current_administrator_cannot_lock_out_own_account(tmp_path: Path) -> None:

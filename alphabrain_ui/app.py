@@ -89,6 +89,7 @@ from .evaluations import (
 from .jobs import ACTIVE_STATUSES, TERMINAL_STATUSES, JobManager
 from .launchers import build_launch_plan, normalize_family
 from .preflight import effective_environment, run_preflight
+from .remote_metrics import RemoteMetricsCollector
 from .remote_training import RemoteTrainingConfig, validate_remote_training_config
 from .runtime import RuntimeConfig
 from .schemas import (
@@ -981,6 +982,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
     wandb_secret_store = WandbSecretStore(runtime.state_dir)
     hf_secret_store = HuggingFaceSecretStore(runtime.state_dir)
     registry_overlay_store = RegistryOverlayStore(runtime.state_dir)
+    remote_metrics_collector = RemoteMetricsCollector()
     with database.session() as startup_db:
         utility_concurrency = int(SettingsService(startup_db).get("cpu_utility_concurrency", 2))
     utility_manager = UtilityManager(
@@ -1454,6 +1456,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
             if unsafe:
                 raise HTTPException(status_code=422, detail={"code": "unsafe_environment_keys", "keys": unsafe})
         settings = SettingsService(db)
+        current_settings = settings.all()
         remote_keys = {
             "remote_training_enabled",
             "remote_training_host",
@@ -1465,7 +1468,6 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
             "remote_training_setup_command",
         }
         if remote_keys.intersection(values):
-            current_settings = settings.all()
             candidate_settings = dict(current_settings)
             candidate_settings.update({key: values[key] for key in remote_keys if key in values})
             try:
@@ -1508,6 +1510,15 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
                     detail={"code": "results_roots_unavailable", "items": invalid_roots},
                 )
         dataset_roots = values.get("dataset_roots")
+        if dataset_roots is not None:
+            current_dataset_roots = current_settings.get("dataset_roots", ["data"])
+            if [str(value) for value in dataset_roots] == [str(value) for value in current_dataset_roots]:
+                # The environment form submits all of its fields. Do not let
+                # an unchanged legacy/default root block an unrelated SSH
+                # settings update merely because that local path is currently
+                # absent. A genuinely changed root is still validated below.
+                values.pop("dataset_roots")
+                dataset_roots = None
         if dataset_roots is not None:
             if not dataset_roots:
                 raise HTTPException(status_code=422, detail="dataset_roots_cannot_be_empty")
@@ -4541,6 +4552,20 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
             "items": [item.to_dict() for item in items],
         }
 
+    @app.get("/api/v1/remote-training/metrics")
+    def remote_training_metrics(
+        _user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        config = RemoteTrainingConfig.from_settings(SettingsService(db).all())
+        if not config.enabled:
+            return {"enabled": False}
+        reservations = {
+            int(row.gpu_index): str(row.job_id)
+            for row in db.execute(select(GPUReservation)).scalars().all()
+        }
+        return remote_metrics_collector.snapshot(config, reservations)
+
     @app.get("/api/v1/storage")
     def storage(_user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[dict[str, Any]]:
         settings = SettingsService(db)
@@ -5174,6 +5199,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         )
         reservations = _gpu_reservations(db)
         settings = SettingsService(db)
+        remote_training = RemoteTrainingConfig.from_settings(settings.all())
         storage_rows = []
         for value in settings.get("results_roots", ["results"]):
             path = Path(value).expanduser()
@@ -5191,6 +5217,10 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
             "job_counts": counts,
             "gpus": [gpu.to_dict() for gpu in gpu_monitor.snapshot(reservations)],
             "system_metrics": collect_system_metrics(),
+            "remote_training": {
+                "enabled": remote_training.enabled,
+                "target": remote_training.target if remote_training.enabled else "",
+            },
             "recent_experiments": [_serialize_experiment(row) for row in recent],
             "checkpoint_count": db.execute(select(func.count(Checkpoint.id))).scalar_one(),
             "storage": storage_rows,

@@ -42,6 +42,12 @@ the UI machine.
 
 ## Runtime behavior
 
+While remote training is enabled, the Overview page adds a **Remote training
+server** panel. It polls the configured host over SSH and shows the configured
+remote GPUs, CPU and RAM usage, repository-filesystem free space, connection
+state, and collection time. The original local GPU, system, and storage panels
+remain unchanged. Disabling remote training removes the extra panel.
+
 Generated experiment snapshots are sent through the encrypted SSH session
 before the training command starts. They are not passed as command-line
 secrets. Standard output and standard error stream back to the normal job log,
