@@ -22,7 +22,7 @@ import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
-import { api, listFrom } from '../api/client';
+import { api, healthyGpus, listFrom } from '../api/client';
 import type { ModelPublication } from '../api/types';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
@@ -55,7 +55,7 @@ export function CheckpointDetailPage() {
   const publications = useQuery({ queryKey: ['model-publications', checkpointId], queryFn: () => api.publications.list(checkpointId), enabled: Boolean(checkpointId), refetchInterval: 10_000 });
   const utilities = useQuery({ queryKey: ['utilities'], queryFn: api.utilities.list, refetchInterval: 2_000 });
   const gpus = useQuery({ queryKey: ['gpus'], queryFn: api.gpus, refetchInterval: gpuRefreshInterval });
-  const visibleGpus = listFrom(gpus.data);
+  const visibleGpus = healthyGpus(gpus.data);
   const mergeModels = checkpoint.data?.tools.merge_lora.models ?? [];
   const suggestedName = useMemo(() => {
     const path = checkpoint.data?.tools.merge_lora.suggested_output_path;

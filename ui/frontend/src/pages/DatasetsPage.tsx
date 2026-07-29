@@ -74,8 +74,8 @@ export function DatasetsPage() {
           ]} />
         </Card>
       </AsyncState>
-      <Modal open={registerOpen} title={t('datasets.register')} okText={t('common.confirm')} confirmLoading={register.isPending} onCancel={() => setRegisterOpen(false)} onOk={() => void registerForm.validateFields().then((values) => register.mutate(values))}>
-        <Form form={registerForm} layout="vertical">
+      <Modal open={registerOpen} title={t('datasets.register')} okText={t('common.confirm')} confirmLoading={register.isPending} onCancel={() => setRegisterOpen(false)} onOk={() => registerForm.submit()}>
+        <Form form={registerForm} layout="vertical" onFinish={(values) => register.mutate(values)}>
           <Form.Item name="name" label={t('datasets.name')} rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="path" label={t('datasets.path')} rules={[{ required: true }]} extra={t('datasets.pathHint')}><Input /></Form.Item>
           <Form.Item name="description" label={t('datasets.description')}><Input.TextArea /></Form.Item>
@@ -84,8 +84,8 @@ export function DatasetsPage() {
           <Form.Item name="dataset_id" hidden><Input /></Form.Item>
         </Form>
       </Modal>
-      <Modal width={720} open={mixtureOpen} title={t('datasets.createMixture')} okText={t('common.create')} confirmLoading={createMixture.isPending} onCancel={() => setMixtureOpen(false)} onOk={() => void mixtureForm.validateFields().then((values) => createMixture.mutate(values))}>
-        <Form form={mixtureForm} layout="vertical">
+      <Modal width={720} open={mixtureOpen} title={t('datasets.createMixture')} okText={t('common.create')} confirmLoading={createMixture.isPending} onCancel={() => setMixtureOpen(false)} onOk={() => mixtureForm.submit()}>
+        <Form form={mixtureForm} layout="vertical" onFinish={(values) => createMixture.mutate(values)}>
           <Form.Item name="name" label={t('datasets.name')} rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="visibility" label={t('datasets.sharing')}><Radio.Group><Radio value="shared">{t('datasets.shared')}</Radio><Radio value="private">{t('datasets.private')}</Radio></Radio.Group></Form.Item>
           <Form.List name="members">{(fields, { add, remove: removeField }) => <Space direction="vertical" className="full-width">

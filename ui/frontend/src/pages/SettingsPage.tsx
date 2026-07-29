@@ -95,8 +95,7 @@ export function SettingsPage() {
   const requestedTab = searchParams.get('tab') ?? 'general';
   const activeTab = requestedTab === 'experimental' ? 'general' : requestedTab;
 
-  const savePreferences = async () => {
-    const values = await preferenceForm.validateFields();
+  const savePreferences = (values: Partial<User>) => {
     const currentlyEnabled = Boolean(me.data?.experimental_enabled);
     if (!currentlyEnabled && values.experimental_enabled) {
       Modal.confirm({
@@ -170,7 +169,7 @@ export function SettingsPage() {
                       <Typography.Paragraph type="secondary">{t('settings.generalDescription')}</Typography.Paragraph>
                     </div>
                     <Card size="small" className="settings-section-card" title={t('settings.deploymentAndSecurity')}>
-                      <Form<SystemSettings> form={generalForm} layout="vertical" disabled={!isAdmin}>
+                      <Form<SystemSettings> form={generalForm} layout="vertical" disabled={!isAdmin} onFinish={(values) => updateSystem.mutate(values)}>
                         <Form.Item name="mode" label={t('settings.mode')}>
                           <Radio.Group className="mode-picker" optionType="button">
                             <Radio.Button value="personal"><b>{t('settings.personal')}</b><small>{t('settings.personalDesc')}</small></Radio.Button>
@@ -186,7 +185,7 @@ export function SettingsPage() {
                         {!isAdmin ? <Alert type="info" showIcon message={t('settings.adminRequired')} /> : null}
                         {isAdmin ? (
                           <div className="settings-save-row">
-                            <Button type="primary" icon={<SaveOutlined />} loading={updateSystem.isPending} onClick={() => void generalForm.validateFields().then((values) => updateSystem.mutate(values))}>{t('common.save')}</Button>
+                            <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={updateSystem.isPending}>{t('common.save')}</Button>
                           </div>
                         ) : null}
                       </Form>
@@ -199,9 +198,9 @@ export function SettingsPage() {
                         children: (
                           <>
                             <Alert type="warning" showIcon message={t('settings.allowExperimentalDesc')} description={t('builder.experimentalRisk')} />
-                            <Form<SystemSettings> form={experimentalForm} layout="vertical" disabled={!isAdmin}>
+                            <Form<SystemSettings> form={experimentalForm} layout="vertical" disabled={!isAdmin} onFinish={(values) => updateSystem.mutate(values)}>
                               <Form.Item name="experimental_allowed" label={t('settings.allowExperimental')} valuePropName="checked"><Switch /></Form.Item>
-                              {isAdmin ? <Button icon={<SafetyCertificateOutlined />} loading={updateSystem.isPending} onClick={() => void experimentalForm.validateFields().then((values) => updateSystem.mutate(values))}>{t('common.save')}</Button> : null}
+                              {isAdmin ? <Button htmlType="submit" icon={<SafetyCertificateOutlined />} loading={updateSystem.isPending}>{t('common.save')}</Button> : null}
                             </Form>
                           </>
                         ),
@@ -218,7 +217,7 @@ export function SettingsPage() {
                       <Typography.Title level={4}>{t('settings.infrastructure')}</Typography.Title>
                       <Typography.Paragraph type="secondary">{t('settings.infrastructureDescription')}</Typography.Paragraph>
                     </div>
-                    <Form<SystemSettings> form={environmentForm} layout="vertical" disabled={!isAdmin}>
+                    <Form<SystemSettings> form={environmentForm} layout="vertical" disabled={!isAdmin} onFinish={(values) => updateSystem.mutate(values)}>
                       <Collapse
                         className="settings-groups"
                         defaultActiveKey={remoteTrainingEnabled ? ['storage', 'remote'] : ['storage']}
@@ -331,7 +330,7 @@ export function SettingsPage() {
                       />
                       {isAdmin ? (
                         <div className="settings-save-row">
-                          <Button type="primary" icon={<SaveOutlined />} loading={updateSystem.isPending} onClick={() => void environmentForm.validateFields().then((values) => updateSystem.mutate(values))}>{t('settings.saveInfrastructure')}</Button>
+                          <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={updateSystem.isPending}>{t('settings.saveInfrastructure')}</Button>
                         </div>
                       ) : null}
                     </Form>
@@ -409,7 +408,7 @@ export function SettingsPage() {
                       <Typography.Paragraph type="secondary">{t('settings.preferencesDescription')}</Typography.Paragraph>
                     </div>
                     <Card size="small" className="settings-section-card">
-                      <Form<Partial<User>> form={preferenceForm} layout="vertical">
+                      <Form<Partial<User>> form={preferenceForm} layout="vertical" onFinish={savePreferences}>
                         <div className="form-grid-2">
                           <Form.Item name="locale" label={t('common.language')}><Select options={[{ label: '简体中文', value: 'zh-CN' satisfies Language }, { label: 'English', value: 'en-US' satisfies Language }]} /></Form.Item>
                           <Form.Item name="theme" label={t('common.theme')}><Radio.Group options={[{ label: t('common.light'), value: 'light' satisfies ThemeMode }, { label: t('common.dark'), value: 'dark' satisfies ThemeMode }]} /></Form.Item>
@@ -428,7 +427,7 @@ export function SettingsPage() {
                         </Form.Item>
                         <Form.Item name="experimental_enabled" label={t('settings.userExperimental')} valuePropName="checked"><Switch disabled={!(settings.data?.experimental_allowed ?? me.data?.experimental_available)} /></Form.Item>
                         <div className="settings-save-row">
-                          <Button type="primary" icon={<SaveOutlined />} loading={updatePreferences.isPending} onClick={() => void savePreferences()}>{t('common.save')}</Button>
+                          <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={updatePreferences.isPending}>{t('common.save')}</Button>
                         </div>
                       </Form>
                     </Card>

@@ -47,6 +47,13 @@ export interface GPU {
   available?: boolean;
   external_processes?: number;
   job?: Pick<Job, 'id' | 'name' | 'owner_name' | 'status'>;
+  error?: string;
+}
+
+export interface GPUInventory {
+  available: boolean;
+  error?: string;
+  items: GPU[];
 }
 
 export interface StorageSummary {

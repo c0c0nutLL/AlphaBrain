@@ -102,9 +102,9 @@ export function TemplatesPage() {
         onCancel={() => setOpen(false)}
         okText={t('common.save')}
         confirmLoading={save.isPending}
-        onOk={() => void form.validateFields().then((values) => save.mutate(values))}
+        onOk={() => form.submit()}
       >
-        <Form<TemplateForm> form={form} layout="vertical" initialValues={{ visibility: 'personal' }}>
+        <Form<TemplateForm> form={form} layout="vertical" initialValues={{ visibility: 'personal' }} onFinish={(values) => save.mutate(values)}>
           <Form.Item name="name" label={t('templates.name')} rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="description" label={t('builder.description')}><Input.TextArea rows={3} /></Form.Item>
           <Form.Item name="visibility" label={t('templates.visibility')} rules={[{ required: true }]}><Radio.Group options={[{ label: t('templates.personal'), value: 'personal' }, { label: t('templates.shared'), value: 'shared' }]} /></Form.Item>
