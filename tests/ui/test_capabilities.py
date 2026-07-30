@@ -21,6 +21,7 @@ from alphabrain_ui.configuration import (
 )
 from alphabrain_ui.gpu import GPUInfo
 from alphabrain_ui.preflight import run_preflight
+from alphabrain_ui.registry import catalog_for_runtime, load_catalog
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -71,6 +72,22 @@ def test_catalog_hides_experimental_and_unsupported_by_default() -> None:
         assert combo["action_head"] in component_ids["action_heads"]
         assert combo["method"] in component_ids["training_methods"]
         assert set(combo["datasets"]) <= component_ids["datasets"]
+
+
+def test_regular_runtime_hides_demo_only_registry_entries() -> None:
+    packaged = load_catalog()
+    regular = catalog_for_runtime(packaged, demo_mode=False)
+    demo = catalog_for_runtime(packaged, demo_mode=True)
+
+    assert "toy" not in {
+        item["id"] for item in regular["components"]["backbones"]
+    }
+    assert "toy_libero_debug" not in {
+        item["id"] for item in regular["combinations"]
+    }
+    assert "toy" in {item["id"] for item in demo["components"]["backbones"]}
+    assert "toy_libero_debug" in {item["id"] for item in demo["combinations"]}
+    assert "toy" in {item["id"] for item in packaged["components"]["backbones"]}
 
 
 def test_catalog_reports_backbone_pretrained_directory_status(tmp_path: Path) -> None:

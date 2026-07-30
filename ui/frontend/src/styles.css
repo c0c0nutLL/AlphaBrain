@@ -246,6 +246,13 @@ button, input, textarea, select { font: inherit; }
 }
 .config-preview { max-height: 430px; white-space: pre; }
 .config-preview.large { max-height: 680px; min-height: 300px; }
+textarea.ant-input.config-preview,
+textarea.ant-input.config-preview:hover,
+textarea.ant-input.config-preview:focus {
+  color: #d6e2f4;
+  background: #111827;
+  caret-color: #d6e2f4;
+}
 .empty-resolve { min-height: 380px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 13px; color: var(--text-muted); font-size: 40px; }
 .empty-resolve .ant-typography { font-size: 14px; }
 .builder-footer { display: flex; align-items: center; justify-content: space-between; }

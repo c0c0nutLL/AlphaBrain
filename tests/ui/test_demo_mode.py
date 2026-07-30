@@ -46,6 +46,12 @@ def test_demo_mode_runs_training_deployment_inference_and_evaluation(tmp_path: P
         assert len(client.get("/api/v1/gpus").json()["items"]) == 2
         assert any(row["id"] == DEMO_DATASET_ID for row in client.get("/api/v1/datasets").json())
         assert any(row["id"] == DEMO_TEMPLATE_ID for row in client.get("/api/v1/templates").json())
+        registry = client.get("/api/v1/registry").json()["view"]
+        assert "toy" in {row["id"] for row in registry["components"]}
+        assert "toy_libero_debug" in {row["id"] for row in registry["combinations"]}
+        capabilities = client.get("/api/v1/capabilities").json()["catalog"]
+        assert "toy" in {row["id"] for row in capabilities["backbones"]}
+        assert "toy_libero_debug" in {row["id"] for row in capabilities["combinations"]}
 
         experiment_request = {"name": "Demo full flow", "spec": demo_template_spec()}
         preflight = client.post("/api/v1/experiments/preflight", json=experiment_request)

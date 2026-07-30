@@ -1,5 +1,5 @@
 schema_version: 2
-registry_version: "2026.07.15"
+registry_version: "2026.07.30"
 
 statuses:
   verified:
@@ -60,6 +60,7 @@ components:
       default_pretrained: "data/pretrained_models/Wan2.2-TI2V-5B"
     - id: toy
       kind: debug
+      availability: demo_only
       status: verified
       label: {zh-CN: "ToyVLA（调试）", en-US: "ToyVLA (debug)"}
 
@@ -732,6 +733,7 @@ combinations:
     workflow: standard
     min_gpus: 2
   - id: toy_libero_debug
+    availability: demo_only
     status: verified
     backbone: toy
     action_head: mlp_regression

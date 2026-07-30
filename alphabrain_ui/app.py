@@ -136,6 +136,7 @@ from .reference_results import (
     load_reference_snapshot,
     match_reference_results,
 )
+from .registry import catalog_for_runtime
 from .registry_overlay import RegistryOverlayError, RegistryOverlayStore, build_registry_view
 from .secrets import HuggingFaceSecretStore
 from .system_metrics import collect_system_metrics
@@ -982,6 +983,13 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
     wandb_secret_store = WandbSecretStore(runtime.state_dir)
     hf_secret_store = HuggingFaceSecretStore(runtime.state_dir)
     registry_overlay_store = RegistryOverlayStore(runtime.state_dir)
+
+    def runtime_registry_catalog() -> dict[str, Any]:
+        return catalog_for_runtime(
+            registry_overlay_store.effective_catalog(),
+            demo_mode=runtime.demo_mode,
+        )
+
     remote_metrics_collector = RemoteMetricsCollector()
     with database.session() as startup_db:
         utility_concurrency = int(SettingsService(startup_db).get("cpu_utility_concurrency", 2))
@@ -998,7 +1006,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         database,
         gpu_monitor,
         lock=scheduler_lock,
-        source_catalog_provider=registry_overlay_store.effective_catalog,
+        source_catalog_provider=runtime_registry_catalog,
     )
     inference_coordinator = InferenceCoordinator()
     evaluation_manager = EvaluationManager(
@@ -1007,7 +1015,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         gpu_monitor,
         lock=scheduler_lock,
         controller_secret_store=deployment_manager.controller_secret_store,
-        source_catalog_provider=registry_overlay_store.effective_catalog,
+        source_catalog_provider=runtime_registry_catalog,
     )
     manager = JobManager(
         runtime,
@@ -1666,7 +1674,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
 
     def effective_registry_catalog() -> dict[str, Any]:
         try:
-            return registry_overlay_store.effective_catalog()
+            return runtime_registry_catalog()
         except (RegistryOverlayError, RuntimeError) as exc:
             code = exc.code if isinstance(exc, RegistryOverlayError) else str(exc)
             raise HTTPException(
@@ -1723,7 +1731,14 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
                     value=exc.detail,
                 ),
             ) from exc
-        return {"overlay": result["overlay"], "view": result["view"]}
+        catalog = catalog_for_runtime(
+            result["effective_catalog"],
+            demo_mode=runtime.demo_mode,
+        )
+        return {
+            "overlay": result["overlay"],
+            "view": build_registry_view(catalog, result["overlay"]),
+        }
 
     @app.put("/api/v1/registry/overlay")
     def put_registry_overlay(

@@ -83,6 +83,51 @@ def executable_overlay() -> dict:
     return document
 
 
+def test_regular_platform_hides_and_rejects_demo_only_models(tmp_path: Path) -> None:
+    with TestClient(make_app(tmp_path)) as client:
+        setup_personal(client)
+
+        registry = client.get("/api/v1/registry")
+        assert registry.status_code == 200
+        assert "toy" not in {
+            row["id"] for row in registry.json()["view"]["components"]
+        }
+        assert "toy_libero_debug" not in {
+            row["id"] for row in registry.json()["view"]["combinations"]
+        }
+
+        capabilities = client.get("/api/v1/capabilities")
+        assert capabilities.status_code == 200
+        assert "toy" not in {
+            row["id"] for row in capabilities.json()["catalog"]["backbones"]
+        }
+        assert "toy_libero_debug" not in {
+            row["id"] for row in capabilities.json()["catalog"]["combinations"]
+        }
+
+        blocked = client.post(
+            "/api/v1/experiments/submit",
+            json={
+                "name": "Hidden demo model",
+                "spec": {
+                    "architecture": {
+                        "backbone": "toy",
+                        "action_head": "mlp_regression",
+                    },
+                    "training": {"method": "imitation_learning"},
+                    "dataset": {"id": "libero", "mix": "libero_goal"},
+                    "resources": {"allocation": "auto", "num_gpus": 1},
+                    "parameters": {"run_id": "hidden-demo-model"},
+                    "expert_overrides": {},
+                },
+            },
+        )
+        assert blocked.status_code == 422
+        assert "config_resolution_failed" in {
+            issue["code"] for issue in blocked.json()["detail"]["issues"]
+        }
+
+
 def test_registry_overlay_api_previews_persists_and_builds_effective_catalog(tmp_path: Path) -> None:
     app = make_app(tmp_path)
     with TestClient(app) as client:
