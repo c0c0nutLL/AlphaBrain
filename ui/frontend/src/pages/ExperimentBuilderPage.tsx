@@ -63,7 +63,7 @@ import { DatasetDirectoryPicker } from '../components/DatasetDirectoryPicker';
 import { PageIntro } from '../components/PageIntro';
 import { TrainingWorkflowFields } from '../components/TrainingWorkflowFields';
 import { useGpuRefreshInterval } from '../hooks/useGpuRefreshInterval';
-import { capabilityMatches, defaultWandbRunConfig, filterSupportedWandbCategories, isBuilderStepComplete, normalizeBuilderResources, workflowFieldActive } from './builder-validation';
+import { builderGpuIds, capabilityMatches, defaultWandbRunConfig, filterSupportedWandbCategories, isBuilderStepComplete, normalizeBuilderResources, workflowFieldActive } from './builder-validation';
 
 interface BuilderValues {
   name: string;
@@ -193,9 +193,21 @@ export function ExperimentBuilderPage() {
   const checkpointQuery = useQuery({ queryKey: ['checkpoints'], queryFn: api.checkpoints });
   const registeredDatasetsQuery = useQuery({ queryKey: ['datasets'], queryFn: api.datasets.list });
   const datasetMixturesQuery = useQuery({ queryKey: ['dataset-mixtures'], queryFn: api.datasets.mixtures.list });
+  const trainingTargetQuery = useQuery({ queryKey: ['training-target'], queryFn: api.trainingTarget });
   const gpuQuery = useQuery({ queryKey: ['gpus'], queryFn: api.gpus, refetchInterval: gpuRefreshInterval });
-  const visibleGpus = healthyGpus(gpuQuery.data);
-  const detectedGpuCount = visibleGpus.length;
+  const localGpus = healthyGpus(gpuQuery.data);
+  const remoteTraining = trainingTargetQuery.data?.mode === 'remote';
+  const selectableGpuIds = trainingTargetQuery.isSuccess
+    ? builderGpuIds(localGpus.map((gpu) => gpu.index), trainingTargetQuery.data)
+    : [];
+  const selectableGpus = remoteTraining
+    ? selectableGpuIds.map((index) => ({
+        index,
+        name: t('builder.remoteGpu'),
+        available: true,
+      }))
+    : localGpus;
+  const detectedGpuCount = selectableGpus.length;
   const singleGpu = detectedGpuCount === 1;
 
   useEffect(() => {
@@ -548,7 +560,11 @@ export function ExperimentBuilderPage() {
           ]}
         />
         <Divider />
-        <AsyncState loading={capabilityQuery.isLoading} error={capabilityQuery.error} onRetry={() => void capabilityQuery.refetch()}>
+        <AsyncState
+          loading={capabilityQuery.isLoading || trainingTargetQuery.isLoading || (!remoteTraining && gpuQuery.isLoading)}
+          error={capabilityQuery.error ?? trainingTargetQuery.error ?? (!remoteTraining ? gpuQuery.error : null)}
+          onRetry={() => void Promise.all([capabilityQuery.refetch(), trainingTargetQuery.refetch(), gpuQuery.refetch()])}
+        >
           <Form<BuilderValues>
             form={form}
             layout="vertical"
@@ -897,8 +913,8 @@ export function ExperimentBuilderPage() {
                         showIcon
                         message={t('builder.singleGpuDetected')}
                         description={t('builder.singleGpuDescription', {
-                          index: visibleGpus[0]?.index ?? 0,
-                          name: visibleGpus[0]?.name ?? 'GPU',
+                          index: selectableGpus[0]?.index ?? 0,
+                          name: selectableGpus[0]?.name ?? 'GPU',
                         })}
                       />
                     ) : (
@@ -934,7 +950,7 @@ export function ExperimentBuilderPage() {
                               mode="multiple"
                               placeholder="0, 1"
                               onChange={(values: number[]) => form.setFieldValue('gpu_count', values.length)}
-                              options={visibleGpus.map((gpu) => ({ value: gpu.index, label: `GPU ${gpu.index} · ${gpu.name}${gpu.available ? '' : ` · ${t('dashboard.occupied')}`}` }))}
+                              options={selectableGpus.map((gpu) => ({ value: gpu.index, label: `GPU ${gpu.index} · ${gpu.name}${gpu.available ? '' : ` · ${t('dashboard.occupied')}`}` }))}
                             />
                           </Form.Item>
                         ) : null}

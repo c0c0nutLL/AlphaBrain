@@ -21,7 +21,6 @@ import {
   Space,
   Steps,
   Switch,
-  Table,
   Tag,
   Typography,
   message,
@@ -49,6 +48,7 @@ import { usePreferences } from '../app-context';
 import { useGpuRefreshInterval } from '../hooks/useGpuRefreshInterval';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
+import { ResizableTable as Table } from '../components/ResizableTable';
 import { ServerDirectoryPicker } from '../components/ServerDirectoryPicker';
 import { StatusTag } from '../components/StatusTag';
 import {
@@ -537,7 +537,7 @@ export function EvaluationsPage() {
         { title: t('evaluation.name'), dataIndex: 'name', fixed: 'left', render: (value: string, run) => <div><Typography.Text strong>{value}</Typography.Text><small className="table-subtitle">{run.owner_name ?? '—'}</small></div> },
         { title: t('common.status'), dataIndex: 'status', render: (value) => <StatusTag status={value} /> },
         { title: t('evaluation.benchmark'), dataIndex: 'benchmark_id', render: (value: string, run) => <div><Typography.Text>{value}</Typography.Text><small className="table-subtitle">{run.suite ?? run.task_set ?? run.split ?? run.preset}</small></div> },
-        { title: t('evaluation.checkpoint'), render: (_, run) => <Typography.Text code ellipsis={{ tooltip: run.checkpoint_path ?? run.checkpoint_id }} style={{ maxWidth: 220 }}>{run.checkpoint_path?.split('/').pop() ?? run.checkpoint_id ?? '—'}</Typography.Text> },
+        { title: t('evaluation.checkpoint'), render: (_, run) => <Typography.Text code className="table-wrap-text">{run.checkpoint_path?.split('/').pop() ?? run.checkpoint_id ?? '—'}</Typography.Text> },
         { title: t('evaluation.successRate'), render: (_, run) => <Typography.Text strong className={run.result ? 'success' : undefined}>{successRate(run)}</Typography.Text> },
         { title: t('evaluation.gpuResources'), render: (_, run) => run.assigned_gpu_ids.length ? run.assigned_gpu_ids.map((id) => <span className="gpu-chip" key={id}>{id}</span>) : run.queue_position ? `#${run.queue_position}` : '1 GPU' },
         { title: t('common.createdAt'), dataIndex: 'created_at', render: (value?: string) => value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '—' },

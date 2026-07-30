@@ -22,7 +22,6 @@ import {
   Space,
   Steps,
   Switch,
-  Table,
   Tag,
   Typography,
   message,
@@ -45,6 +44,7 @@ import { useGpuRefreshInterval } from '../hooks/useGpuRefreshInterval';
 import { AsyncState } from '../components/AsyncState';
 import { DeploymentApiKeyModal } from '../components/DeploymentApiKeyModal';
 import { PageIntro } from '../components/PageIntro';
+import { ResizableTable as Table } from '../components/ResizableTable';
 import { ServerDirectoryPicker } from '../components/ServerDirectoryPicker';
 import { StatusTag } from '../components/StatusTag';
 import {
@@ -538,7 +538,7 @@ export function DeploymentsPage() {
                 title: t('deployment.endpoint'), width: 260,
                 render: (_, row) => {
                   const endpoint = deploymentEndpoint(row);
-                  return endpoint ? <Space onClick={(event) => event.stopPropagation()}><Typography.Text code ellipsis={{ tooltip: endpoint }} style={{ maxWidth: 190 }}>{endpoint}</Typography.Text><Button type="text" size="small" icon={<CopyOutlined />} onClick={() => { void navigator.clipboard.writeText(endpoint); message.success(t('common.copied')); }} /></Space> : '—';
+                  return endpoint ? <Space align="start" onClick={(event) => event.stopPropagation()}><Typography.Text code className="table-wrap-text">{endpoint}</Typography.Text><Button type="text" size="small" icon={<CopyOutlined />} onClick={() => { void navigator.clipboard.writeText(endpoint); message.success(t('common.copied')); }} /></Space> : '—';
                 },
               },
               { title: t('common.createdAt'), dataIndex: 'created_at', render: (value?: string) => value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '—' },

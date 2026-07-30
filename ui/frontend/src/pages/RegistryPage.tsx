@@ -1,6 +1,6 @@
 import { CodeOutlined, DeleteOutlined, ExperimentOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Card, Descriptions, Input, Modal, Space, Statistic, Table, Tabs, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, Descriptions, Input, Modal, Space, Statistic, Tabs, Tag, Typography, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { parse, stringify } from 'yaml';
@@ -8,6 +8,7 @@ import { api, isRecord } from '../api/client';
 import type { Language, RegistryCombinationView, RegistryComponentView, RegistryDeploymentCombinationView, RegistryOverlayPreview } from '../api/types';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
+import { ResizableTable as Table } from '../components/ResizableTable';
 
 function emptyOverlay(): Record<string, unknown> {
   const components = { backbones: [], action_heads: [], training_methods: [], datasets: [] };

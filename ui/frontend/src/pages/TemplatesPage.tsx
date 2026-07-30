@@ -1,6 +1,6 @@
 import { CopyOutlined, DeleteOutlined, EditOutlined, PlusOutlined, RocketOutlined, SearchOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Card, Form, Input, Modal, Radio, Space, Table, Tag, Typography, message } from 'antd';
+import { Button, Card, Form, Input, Modal, Radio, Space, Tag, Typography, message } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -10,6 +10,7 @@ import type { Template } from '../api/types';
 import { usePreferences } from '../app-context';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
+import { ResizableTable as Table } from '../components/ResizableTable';
 
 interface TemplateForm {
   name: string;

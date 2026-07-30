@@ -1,6 +1,6 @@
 import { ArrowLeftOutlined, BarChartOutlined, TrophyOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Progress, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Progress, Statistic, Tag, Typography } from 'antd';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -8,6 +8,7 @@ import { api } from '../api/client';
 import type { EvaluationComparisonItem } from '../api/types';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
+import { ResizableTable as Table } from '../components/ResizableTable';
 
 function percent(value?: number): string {
   return value == null ? '—' : `${(value * 100).toFixed(1)}%`;

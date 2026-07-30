@@ -1,6 +1,6 @@
 import { PlusOutlined, RocketOutlined, SearchOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Card, Input, Select, Space, Table, Tag, Typography } from 'antd';
+import { Button, Card, Input, Select, Space, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -10,6 +10,7 @@ import type { Experiment, Template } from '../api/types';
 import { usePreferences } from '../app-context';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
+import { ResizableTable as Table } from '../components/ResizableTable';
 
 export function ExperimentsPage() {
   const { t } = useTranslation();
@@ -43,7 +44,7 @@ export function ExperimentsPage() {
               <Card key={preset.id} size="small" className="preset-card">
                 <Space wrap><Tag color="geekblue">{t('templates.builtin')}</Tag><Tag color={preset.availability === 'ready' ? 'green' : preset.availability === 'partial' ? 'gold' : 'red'}>{t(`templates.availability.${preset.availability ?? 'missing'}`)}</Tag></Space>
                 <Typography.Title level={5}>{presetName(preset)}</Typography.Title>
-                <Typography.Paragraph type="secondary" ellipsis={{ rows: 3 }}>{presetDescription(preset)}</Typography.Paragraph>
+                <Typography.Paragraph type="secondary">{presetDescription(preset)}</Typography.Paragraph>
                 <Space size={[4, 4]} wrap>{preset.tags?.slice(0, 3).map((tag) => <Tag key={tag}>{tag}</Tag>)}</Space>
                 <Button block type="primary" ghost icon={<RocketOutlined />} onClick={() => navigate(`/experiments/new?template=${encodeURIComponent(preset.id)}`)}>{t('templates.use')}</Button>
               </Card>

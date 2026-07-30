@@ -1,6 +1,6 @@
 import { LinkOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Empty, Select, Space, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Empty, Select, Space, Tag, Typography } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -8,6 +8,7 @@ import { api } from '../api/client';
 import type { ReferenceMetricDefinition, ReferenceResultRow, ReferenceResultSet } from '../api/types';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
+import { ResizableTable as Table } from '../components/ResizableTable';
 
 function metricValue(value: number | null | undefined, metric: ReferenceMetricDefinition): string {
   if (value == null) return '—';

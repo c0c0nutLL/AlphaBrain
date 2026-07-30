@@ -1,12 +1,13 @@
 import { DeleteOutlined, EyeOutlined, PlusOutlined, ReloadOutlined, SettingOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Card, Descriptions, Form, Input, InputNumber, Modal, Popconfirm, Radio, Select, Space, Table, Tabs, Tag, Typography, message } from 'antd';
+import { Button, Card, Descriptions, Form, Input, InputNumber, Modal, Popconfirm, Radio, Select, Space, Tabs, Tag, Typography, message } from 'antd';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
 import type { DatasetMixture, DatasetRegistration } from '../api/types';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
+import { ResizableTable as Table } from '../components/ResizableTable';
 
 function bytes(value: number) {
   if (!value) return '0 B';
@@ -41,7 +42,7 @@ export function DatasetsPage() {
   };
 
   const datasetTable = <Table<DatasetRegistration> rowKey="id" dataSource={datasets.data ?? []} columns={[
-    { title: t('datasets.name'), dataIndex: 'name', render: (value, row) => <Space direction="vertical" size={0}><Typography.Text strong>{value}</Typography.Text><Typography.Text type="secondary" ellipsis>{row.path}</Typography.Text></Space> },
+    { title: t('datasets.name'), dataIndex: 'name', render: (value, row) => <Space direction="vertical" size={0}><Typography.Text strong>{value}</Typography.Text><Typography.Text type="secondary" className="table-wrap-text">{row.path}</Typography.Text></Space> },
     { title: t('datasets.format'), dataIndex: 'format' },
     { title: t('common.status'), dataIndex: 'status', render: (value) => <Tag color={value === 'ready' ? 'green' : value === 'invalid' ? 'red' : 'processing'}>{value}</Tag> },
     { title: t('datasets.episodes'), dataIndex: 'episode_count' },

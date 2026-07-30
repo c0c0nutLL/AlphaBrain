@@ -36,8 +36,7 @@ export function UtilityProgress({ run, compact = false }: { run: UtilityRun; com
       {failed && (progress?.message || run.error) ? (
         <Typography.Text
           type="danger"
-          ellipsis={{ tooltip: progress?.message || run.error }}
-          style={{ maxWidth: '100%', fontSize: 11 }}
+          style={{ maxWidth: '100%', fontSize: 11, whiteSpace: 'normal', overflowWrap: 'anywhere' }}
         >
           {progress?.message || run.error}
         </Typography.Text>

@@ -160,7 +160,67 @@ button, input, textarea, select { font: inherit; }
 .system-metric-copy .ant-typography-secondary { font-size: 11px; line-height: 1.4; }
 .recent-card { margin-top: 16px; }
 .recent-card tbody tr { cursor: pointer; }
-.table-subtitle { color: var(--text-muted); display: block; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.table-subtitle { color: var(--text-muted); display: block; max-width: 100%; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+.resizable-table,
+.resizable-table .ant-spin-nested-loading,
+.resizable-table .ant-spin-container,
+.resizable-table .ant-table,
+.resizable-table .ant-table-container,
+.resizable-table .ant-table-content,
+.resizable-table .ant-table-body {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.resizable-table .ant-table-content,
+.resizable-table .ant-table-body {
+  overflow-x: hidden !important;
+}
+.resizable-table table {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+.resizable-table .ant-table-cell {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.resizable-table .ant-table-cell .ant-typography,
+.resizable-table .ant-table-cell .table-wrap-text {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.resizable-table .ant-table-cell .ant-space {
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+.resizable-table .ant-table-thead > tr > th { position: relative; }
+.table-column-resize-handle {
+  position: absolute;
+  z-index: 3;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.table-column-resize-handle::after {
+  position: absolute;
+  inset-block: 8px;
+  inset-inline-start: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  content: "";
+}
+.table-column-resize-handle:hover::after,
+.table-column-resizing .table-column-resize-handle::after { background: var(--primary); }
+.table-column-resizing, .table-column-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
 
 .preset-section { margin-bottom: 16px; }
 .preset-card-grid {

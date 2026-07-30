@@ -11,7 +11,6 @@ import {
   Row,
   Select,
   Space,
-  Table,
   Tag,
   Typography,
   Upload,
@@ -26,6 +25,7 @@ import { api, listFrom } from '../api/client';
 import type { InferenceRun } from '../api/types';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
+import { ResizableTable as Table } from '../components/ResizableTable';
 
 function statusColor(status: InferenceRun['status']): string {
   if (status === 'completed') return 'green';

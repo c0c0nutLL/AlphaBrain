@@ -1,6 +1,6 @@
 import { ArrowRightOutlined, CloudServerOutlined, DashboardOutlined, DatabaseOutlined, ExperimentOutlined, PlusOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Col, Progress, Row, Space, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Col, Progress, Row, Space, Statistic, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -9,6 +9,7 @@ import type { Experiment } from '../api/types';
 import { AsyncState } from '../components/AsyncState';
 import { GpuCard } from '../components/GpuCard';
 import { PageIntro } from '../components/PageIntro';
+import { ResizableTable as Table } from '../components/ResizableTable';
 import { useGpuRefreshInterval } from '../hooks/useGpuRefreshInterval';
 import { StatusTag } from '../components/StatusTag';
 

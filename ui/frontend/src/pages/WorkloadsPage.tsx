@@ -1,6 +1,6 @@
 import { DeleteOutlined, DownloadOutlined, FileZipOutlined, SearchOutlined } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Button, Card, Input, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { Button, Card, Input, Modal, Select, Space, Tag, Typography, message } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -9,6 +9,7 @@ import { api, listFrom } from '../api/client';
 import type { Workload } from '../api/types';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
+import { ResizableTable as Table } from '../components/ResizableTable';
 import { UtilityProgress } from '../components/UtilityProgress';
 
 const kinds: Workload['kind'][] = ['training', 'deployment', 'evaluation', 'utility'];
@@ -95,7 +96,7 @@ export function WorkloadsPage() {
               { title: t('workloads.queue'), render: (_, row) => <div>{t(`workloads.scopes.${row.queue_scope}`)}<small className="table-subtitle">{row.queue_position ? `#${row.queue_position}` : '—'}</small></div> },
               { title: 'GPU', dataIndex: 'gpu_ids', render: (value: number[]) => value.length ? value.map((id) => <Tag key={id}>GPU {id}</Tag>) : '—' },
               { title: t('common.createdAt'), dataIndex: 'created_at', render: (value?: string) => value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '—' },
-              { title: t('workloads.error'), dataIndex: 'error', ellipsis: true, render: (value?: string) => value || '—' },
+              { title: t('workloads.error'), dataIndex: 'error', render: (value?: string) => value || '—' },
               { title: t('workloads.packageTraining'), width: 290, render: (_, row) => row.kind === 'training' ? packageControl(row) : null },
               {
                 title: t('common.actions'),

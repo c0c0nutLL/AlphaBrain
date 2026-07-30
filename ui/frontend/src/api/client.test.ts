@@ -512,6 +512,19 @@ describe('API response normalization', () => {
     });
   });
 
+  it('normalizes the configured training target without exposing SSH settings', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({
+      mode: 'remote',
+      gpu_ids: [0, 1, 2, 3, 3, -1, '4'],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(api.trainingTarget()).resolves.toEqual({
+      mode: 'remote',
+      gpu_ids: [0, 1, 2, 3],
+    });
+  });
+
   it('accepts the dashboard system compatibility alias and structured telemetry errors', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({

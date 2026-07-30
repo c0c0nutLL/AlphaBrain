@@ -44,6 +44,10 @@ def test_demo_mode_runs_training_deployment_inference_and_evaluation(tmp_path: P
         assert health.json()["demo_mode"] is True
         assert client.get("/api/v1/setup/status").json()["initialized"] is True
         assert len(client.get("/api/v1/gpus").json()["items"]) == 2
+        assert client.get("/api/v1/training/target").json() == {
+            "mode": "local",
+            "gpu_ids": [],
+        }
         assert any(row["id"] == DEMO_DATASET_ID for row in client.get("/api/v1/datasets").json())
         assert any(row["id"] == DEMO_TEMPLATE_ID for row in client.get("/api/v1/templates").json())
         registry = client.get("/api/v1/registry").json()["view"]

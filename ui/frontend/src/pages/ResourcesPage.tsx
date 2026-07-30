@@ -1,12 +1,13 @@
 import { CloudDownloadOutlined, FolderOpenOutlined, KeyOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Tag, Typography, message } from 'antd';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api/client';
 import type { ResourceRecord } from '../api/types';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
+import { ResizableTable as Table } from '../components/ResizableTable';
 import { UtilityProgress } from '../components/UtilityProgress';
 
 type ResourceAction = { kind: 'install' | 'register' | 'preprocess'; resource: ResourceRecord };
@@ -108,7 +109,7 @@ export function ResourcesPage() {
             columns={[
               { title: t('resources.resource'), dataIndex: 'name', render: (value, row) => <Space direction="vertical" size={0}><Typography.Text strong>{value}</Typography.Text><Typography.Text type="secondary">{row.kind}</Typography.Text></Space> },
               { title: t('common.status'), dataIndex: 'status', render: (value, row) => row.active_run ? <UtilityProgress run={row.active_run} compact /> : <Tag color={value === 'installed' ? 'green' : value === 'missing' ? 'orange' : 'default'}>{t(`resources.status.${value}`, { defaultValue: value })}</Tag> },
-              { title: t('resources.path'), dataIndex: 'target_path', ellipsis: true, render: (value) => value || '—' },
+              { title: t('resources.path'), dataIndex: 'target_path', render: (value) => value || '—' },
               { title: t('common.actions'), render: (_, row) => <Space wrap>
                 {row.installable && me.data?.role === 'administrator' ? <Button size="small" icon={<CloudDownloadOutlined />} title={row.requires_hf_token && !globalToken.data?.configured ? t('resources.tokenRequired') : undefined} disabled={Boolean(row.active_run) || Boolean(row.requires_hf_token && !globalToken.data?.configured)} onClick={() => openAction({ kind: 'install', resource: row })}>{t('resources.install')}</Button> : null}
                 {row.active_run && ['queued', 'starting', 'running', 'stopping'].includes(row.active_run.status) ? <Button danger size="small" loading={cancelRun.isPending && cancelRun.variables === row.active_run.id} onClick={() => cancelRun.mutate(row.active_run!.id)}>{t('resources.cancelDownload')}</Button> : null}
@@ -124,7 +125,7 @@ export function ResourcesPage() {
             { title: t('common.status'), dataIndex: 'status', render: (value) => <Tag>{value}</Tag> },
             { title: t('resources.progress'), render: (_, row) => <UtilityProgress run={row} compact /> },
             { title: t('resources.queue'), render: (_, row) => `${row.queue_class.toUpperCase()}${row.queue_position ? ` · #${row.queue_position}` : ''}` },
-            { title: t('resources.output'), dataIndex: 'output_path', ellipsis: true },
+            { title: t('resources.output'), dataIndex: 'output_path' },
             { title: t('common.actions'), render: (_, row) => <Space><Button size="small" href={api.utilities.logUrl(row.id)} target="_blank">Log</Button>{['queued', 'starting', 'running', 'stopping'].includes(row.status) ? <Button danger size="small" loading={cancelRun.isPending && cancelRun.variables === row.id} onClick={() => cancelRun.mutate(row.id)}>{t('common.cancel')}</Button> : null}</Space> },
           ]} />
         </Card>

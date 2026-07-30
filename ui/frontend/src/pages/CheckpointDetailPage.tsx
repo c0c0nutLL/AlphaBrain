@@ -13,7 +13,6 @@ import {
   Select,
   Space,
   Switch,
-  Table,
   Tag,
   Typography,
   message,
@@ -26,6 +25,7 @@ import { api, healthyGpus, listFrom } from '../api/client';
 import type { ModelPublication } from '../api/types';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
+import { ResizableTable as Table } from '../components/ResizableTable';
 import { UtilityProgress } from '../components/UtilityProgress';
 import { useGpuRefreshInterval } from '../hooks/useGpuRefreshInterval';
 

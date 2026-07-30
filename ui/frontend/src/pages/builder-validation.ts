@@ -1,4 +1,4 @@
-import type { WandbRunConfig, WorkflowField } from '../api/types';
+import type { TrainingTarget, WandbRunConfig, WorkflowField } from '../api/types';
 
 interface WizardValues {
   name?: string;
@@ -50,6 +50,16 @@ export interface BuilderResources {
   strategy: 'auto' | 'fixed';
   gpu_count: number;
   gpu_ids?: number[];
+}
+
+export function builderGpuIds(
+  localGpuIds: number[],
+  trainingTarget: TrainingTarget | undefined,
+): number[] {
+  const source = trainingTarget?.mode === 'remote'
+    ? trainingTarget.gpu_ids
+    : localGpuIds;
+  return Array.from(new Set(source.filter((value) => Number.isInteger(value) && value >= 0)));
 }
 
 function present(value: unknown): boolean {

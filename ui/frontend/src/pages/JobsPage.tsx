@@ -1,6 +1,6 @@
 import { EyeOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Card, Input, Segmented, Space, Table, Typography } from 'antd';
+import { Button, Card, Input, Segmented, Space, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -9,6 +9,7 @@ import { api, listFrom } from '../api/client';
 import type { Job, JobStatus } from '../api/types';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
+import { ResizableTable as Table } from '../components/ResizableTable';
 import { StatusTag } from '../components/StatusTag';
 
 function duration(job: Job): string {

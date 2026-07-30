@@ -21,7 +21,6 @@ import {
   Space,
   Statistic,
   Switch,
-  Table,
   Tabs,
   Tag,
   Typography,
@@ -36,6 +35,7 @@ import type { EvaluationEpisodeMetric, EvaluationTaskMetric, EvaluationVideo } f
 import { AsyncState } from '../components/AsyncState';
 import { EvaluationResultVisuals } from '../components/EvaluationResultVisuals';
 import { PageIntro } from '../components/PageIntro';
+import { ResizableTable as Table } from '../components/ResizableTable';
 import { StatusTag } from '../components/StatusTag';
 import { useEvaluationStream } from '../hooks/useEvaluationStream';
 

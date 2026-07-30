@@ -1,6 +1,6 @@
 import { SearchOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Card, Input, Table, Typography } from 'antd';
+import { Card, Input, Typography } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -8,6 +8,7 @@ import { api, listFrom } from '../api/client';
 import type { AuditEvent } from '../api/types';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
+import { ResizableTable as Table } from '../components/ResizableTable';
 
 export function AuditPage() {
   const { t } = useTranslation();
@@ -30,7 +31,7 @@ export function AuditPage() {
             columns={[
               { title: t('audit.action'), dataIndex: 'action', render: (value: string) => <Typography.Text code>{value}</Typography.Text> },
               { title: t('audit.target'), render: (_, row) => `${row.target_type || '—'}${row.target_id ? ` · ${row.target_id}` : ''}` },
-              { title: t('audit.actor'), dataIndex: 'actor_id', ellipsis: true, render: (value?: string) => value || t('audit.system') },
+              { title: t('audit.actor'), dataIndex: 'actor_id', render: (value?: string) => value || t('audit.system') },
               { title: t('common.createdAt'), dataIndex: 'created_at', render: (value: string) => dayjs(value).format('YYYY-MM-DD HH:mm:ss') },
             ]}
           />

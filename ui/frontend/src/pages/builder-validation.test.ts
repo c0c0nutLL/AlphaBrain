@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { capabilityMatches, defaultWandbRunConfig, filterSupportedWandbCategories, isBuilderStepComplete, normalizeBuilderResources, workflowFieldActive } from './builder-validation';
+import { builderGpuIds, capabilityMatches, defaultWandbRunConfig, filterSupportedWandbCategories, isBuilderStepComplete, normalizeBuilderResources, workflowFieldActive } from './builder-validation';
 
 const options = {
   localDatasetValid: false,
@@ -79,6 +79,12 @@ describe('experiment builder gating', () => {
       gpu_count: 2,
       gpu_ids: [1, 3],
     });
+  });
+
+  it('uses configured SSH server GPUs when remote training is enabled', () => {
+    expect(builderGpuIds([0, 1], { mode: 'remote', gpu_ids: [0, 1, 2, 3] })).toEqual([0, 1, 2, 3]);
+    expect(builderGpuIds([0, 1], { mode: 'local', gpu_ids: [] })).toEqual([0, 1]);
+    expect(builderGpuIds([0, 1], { mode: 'remote', gpu_ids: [3, 3, -1, 1] })).toEqual([3, 1]);
   });
 });
 

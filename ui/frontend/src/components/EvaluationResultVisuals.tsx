@@ -1,10 +1,11 @@
 import { DownloadOutlined, FileOutlined } from '@ant-design/icons';
-import { Button, Card, Empty, Progress, Space, Table, Tag, Typography } from 'antd';
+import { Button, Card, Empty, Progress, Space, Tag, Typography } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import type { EvaluationArtifact, EvaluationMatrix, EvaluationResult, EvaluationSeries } from '../api/types';
 import { StatusTag } from './StatusTag';
+import { ResizableTable as Table } from './ResizableTable';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

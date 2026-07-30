@@ -4605,6 +4605,17 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
+    @app.get("/api/v1/training/target")
+    def training_target(
+        _user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        remote_training = RemoteTrainingConfig.from_settings(SettingsService(db).all())
+        return {
+            "mode": "remote" if remote_training.enabled else "local",
+            "gpu_ids": list(remote_training.gpu_ids) if remote_training.enabled else [],
+        }
+
     @app.get("/api/v1/gpus")
     def gpus(_user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
         reservations = _gpu_reservations(db)

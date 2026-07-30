@@ -61,6 +61,7 @@ import type {
   SystemMetrics,
   SystemSettings,
   Template,
+  TrainingTarget,
   User,
   UtilityRun,
   WandbCategoryCapability,
@@ -1622,6 +1623,16 @@ export const api = {
   capabilities: async (includeExperimental = false) =>
     normalizeCapabilities(await request<unknown>(`/capabilities?include_experimental=${includeExperimental}`)),
   gpus: async (): Promise<GPUInventory> => normalizeGPUInventory(await request<unknown>('/gpus')),
+  trainingTarget: async (): Promise<TrainingTarget> => {
+    const raw = await request<unknown>('/training/target');
+    const row = isRecord(raw) ? raw : {};
+    return {
+      mode: row.mode === 'remote' ? 'remote' : 'local',
+      gpu_ids: Array.isArray(row.gpu_ids)
+        ? Array.from(new Set(row.gpu_ids.filter((value): value is number => Number.isInteger(value) && Number(value) >= 0)))
+        : [],
+    };
+  },
   storage: async () => request<unknown[]>('/storage'),
   remoteTraining: {
     metrics: async (): Promise<RemoteServerMetrics> =>

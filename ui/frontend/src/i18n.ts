@@ -144,6 +144,7 @@ const zh = {
     fixedGpu: '指定 GPU',
     gpuCount: 'GPU 数量',
     gpuIds: 'GPU 编号',
+    remoteGpu: 'SSH 远端 GPU',
     gpuSelectionCount: '选择的 GPU 数量必须与申请数量一致。',
     singleGpuDetected: '检测到单 GPU，已自动分配',
     singleGpuDescription: '将自动使用 GPU {{index}} · {{name}}，无需选择分配策略或 GPU 编号。',
@@ -736,7 +737,7 @@ const en: typeof zh = {
   login: { title: 'Sign in to Research Console', subtitle: 'Manage training jobs, GPU queues, and artifacts', username: 'Username', password: 'Password', submit: 'Sign in', footer: 'AlphaBrain Research Console · Local network deployment' },
   dashboard: { title: 'Research workspace', subtitle: 'Training resources, job queues, and recent experiments', running: 'Running', queued: 'Queued', failed: 'Recent failures', completed: 'Completed', gpuTitle: 'GPU resources', systemTitle: 'System resources', cpuUsage: 'CPU usage', ramUsage: 'RAM usage', loadAverage: 'Load (1 / 5 / 15 min)', systemUnavailable: 'System resources are temporarily unavailable', storageTitle: 'Storage', recent: 'Recent experiments', alerts: 'System alerts', newExperiment: 'Create experiment', free: 'Free', occupied: 'In use', external: 'External process', probeFailed: 'GPU probe failed', monitorUnavailable: 'GPU monitoring unavailable', operational: 'All systems operational', availableSpace: 'available', monitoredPath: 'Monitored path', mountPoint: 'Mount point / volume', lowDiskSpace: 'Low free space under the monitored path', storageUnavailable: 'The monitored path is unavailable' },
   builder: {
-    title: 'Create training experiment', subtitle: 'Compose the model, method, and dataset, then run preflight checks.', architecture: 'Model architecture', parameters: 'Training parameters', expert: 'Expert config', review: 'Review & submit', backbone: 'Backbone', actionHead: 'Action Head', method: 'Training method', dataset: 'Dataset', experimentName: 'Experiment name', description: 'Description', batchSize: 'Batch size', learningRate: 'Learning rate', maxSteps: 'Max steps', saveInterval: 'Save interval', seed: 'Random seed', workers: 'Data workers', resourceStrategy: 'GPU allocation', autoGpu: 'Auto assign', fixedGpu: 'Specific GPUs', gpuCount: 'GPU count', gpuIds: 'GPU IDs',
+    title: 'Create training experiment', subtitle: 'Compose the model, method, and dataset, then run preflight checks.', architecture: 'Model architecture', parameters: 'Training parameters', expert: 'Expert config', review: 'Review & submit', backbone: 'Backbone', actionHead: 'Action Head', method: 'Training method', dataset: 'Dataset', experimentName: 'Experiment name', description: 'Description', batchSize: 'Batch size', learningRate: 'Learning rate', maxSteps: 'Max steps', saveInterval: 'Save interval', seed: 'Random seed', workers: 'Data workers', resourceStrategy: 'GPU allocation', autoGpu: 'Auto assign', fixedGpu: 'Specific GPUs', gpuCount: 'GPU count', gpuIds: 'GPU IDs', remoteGpu: 'SSH remote GPU',
     gpuSelectionCount: 'The number of selected GPUs must match the requested count.',
     singleGpuDetected: 'Single GPU detected and assigned automatically',
     singleGpuDescription: 'GPU {{index}} · {{name}} will be used automatically; no allocation strategy or GPU ID selection is needed.',

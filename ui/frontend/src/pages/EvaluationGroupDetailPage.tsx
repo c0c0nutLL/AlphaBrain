@@ -1,6 +1,6 @@
 import { ArrowLeftOutlined, DownloadOutlined, StopOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Card, Col, Descriptions, Progress, Row, Space, Statistic, Table, Typography, message } from 'antd';
+import { Alert, Button, Card, Col, Descriptions, Progress, Row, Space, Statistic, Typography, message } from 'antd';
 import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -9,6 +9,7 @@ import type { EvaluationRun } from '../api/types';
 import { AsyncState } from '../components/AsyncState';
 import { EvaluationResultVisuals } from '../components/EvaluationResultVisuals';
 import { PageIntro } from '../components/PageIntro';
+import { ResizableTable as Table } from '../components/ResizableTable';
 import { StatusTag } from '../components/StatusTag';
 
 function rate(value: unknown): string {

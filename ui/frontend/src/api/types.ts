@@ -56,6 +56,11 @@ export interface GPUInventory {
   items: GPU[];
 }
 
+export interface TrainingTarget {
+  mode: 'local' | 'remote';
+  gpu_ids: number[];
+}
+
 export interface StorageSummary {
   path: string;
   mount_point?: string;

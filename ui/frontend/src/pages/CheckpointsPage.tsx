@@ -1,6 +1,6 @@
 import { BarChartOutlined, CloudServerOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, FileDoneOutlined, FileZipOutlined, PlayCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Card, Input, Modal, Space, Table, Tag, Typography, message } from 'antd';
+import { Button, Card, Input, Modal, Space, Tag, Typography, message } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -10,6 +10,7 @@ import type { Checkpoint, UtilityRun } from '../api/types';
 import { usePreferences } from '../app-context';
 import { AsyncState } from '../components/AsyncState';
 import { PageIntro } from '../components/PageIntro';
+import { ResizableTable as Table } from '../components/ResizableTable';
 import { UtilityProgress } from '../components/UtilityProgress';
 
 function bytes(value?: number): string {
@@ -122,7 +123,7 @@ export function CheckpointsPage() {
               { title: t('checkpoints.complete'), dataIndex: 'complete', render: (value: boolean | undefined, row) => <Space direction="vertical" size={2}><Tag icon={<FileDoneOutlined />} color={value === false ? 'red' : 'green'}>{value === false ? t('checkpoints.incomplete') : t('checkpoints.integrityOk')}</Tag>{row.builtin ? <Tag color={row.deployable ? 'green' : 'gold'}>{row.deployable ? t('checkpoints.deploymentReady') : t('checkpoints.adapterRequired')}</Tag> : null}</Space> },
               { title: t('checkpoints.resumable'), dataIndex: 'resumable', render: (value?: boolean) => value ? <Tag color="blue">{t('common.yes')}</Tag> : <Tag>{t('common.no')}</Tag> },
               { title: t('common.createdAt'), dataIndex: 'created_at', render: (value?: string) => value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '—' },
-              { title: t('checkpoints.path'), dataIndex: 'path', ellipsis: true, width: 260, render: (value: string) => <Space><Typography.Text code ellipsis={{ tooltip: value }} style={{ maxWidth: 190 }}>{value}</Typography.Text><Button type="text" size="small" icon={<CopyOutlined />} onClick={() => { void navigator.clipboard.writeText(value); message.success(t('common.copied')); }} /></Space> },
+              { title: t('checkpoints.path'), dataIndex: 'path', width: 260, render: (value: string) => <Space align="start"><Typography.Text code className="table-wrap-text">{value}</Typography.Text><Button type="text" size="small" icon={<CopyOutlined />} onClick={() => { void navigator.clipboard.writeText(value); message.success(t('common.copied')); }} /></Space> },
               { title: t('checkpoints.package'), width: 290, render: (_, row) => packageControl(row) },
               { title: t('common.actions'), fixed: 'right', render: (_, row) => <Space><Button size="small" onClick={() => navigate(`/checkpoints/${encodeURIComponent(row.id)}`)}>{t('common.view')}</Button><Button type="primary" ghost size="small" icon={<PlayCircleOutlined />} disabled={!row.resumable} onClick={() => navigate(`/experiments/new?checkpoint=${encodeURIComponent(row.path)}&resume_mode=full_state`)}>{t('checkpoints.resume')}</Button><Button size="small" icon={<CloudServerOutlined />} disabled={row.complete === false || row.deployable === false} onClick={() => navigate(deployTarget(row))}>{t('checkpoints.deploy')}</Button><Button size="small" icon={<BarChartOutlined />} disabled={row.complete === false || row.deployable === false} onClick={() => navigate(evaluationTarget(row))}>{t('checkpoints.evaluate')}</Button>{row.can_delete ? <Button danger type="text" size="small" icon={<DeleteOutlined />} aria-label={t('common.delete')} onClick={() => { setDeleting(row); setConfirmation(''); }} /> : null}</Space> },
             ]}
