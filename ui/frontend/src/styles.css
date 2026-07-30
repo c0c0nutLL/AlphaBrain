@@ -134,7 +134,7 @@ button, input, textarea, select { font: inherit; }
 .stat-dot.queued { color: rgba(213, 138, 23, .15); background: #d58a17; }
 .stat-dot.completed { color: rgba(43, 155, 104, .15); background: #2b9b68; }
 .stat-dot.failed { color: rgba(214, 69, 69, .15); background: #d64545; }
-.dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(300px, .8fr); gap: 16px; align-items: stretch; }
+.dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(300px, .8fr); gap: 16px; align-items: start; }
 .dashboard-side { display: grid; grid-template-rows: auto auto 1fr; gap: 16px; }
 .gpu-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .remote-server-card { margin-top: 16px; }
