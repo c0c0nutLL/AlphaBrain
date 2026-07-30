@@ -11,6 +11,20 @@ from typing import Any
 from .datasets import _validate_lerobot_dataset
 
 
+_BUILDER_SUPPORT = {
+    "lerobot": "direct",
+    "lerobot_collection": "mixture_only",
+    "cosmos": "inventory_only",
+    "vlm_json": "inventory_only",
+    "unknown": "unsupported",
+}
+
+
+def _with_builder_support(report: dict[str, Any]) -> dict[str, Any]:
+    support = _BUILDER_SUPPORT.get(str(report.get("format_family", "unknown")), "unsupported")
+    return {**report, "builder_support": support, "builder_ready": support == "direct"}
+
+
 def resolve_local_directory(value: str, *, base_dir: Path) -> Path:
     path = Path(value).expanduser()
     if not path.is_absolute():
@@ -112,7 +126,7 @@ def inspect_dataset(path: Path) -> dict[str, Any]:
         except (OSError, json.JSONDecodeError):
             info = {}
         report["step_count"] = int(info.get("total_frames", info.get("total_steps", 0)) or 0)
-        return report
+        return _with_builder_support(report)
 
     lerobot_children = sorted(item for item in path.iterdir() if item.is_dir() and (item / "meta/info.json").is_file())
     if lerobot_children:
@@ -122,7 +136,7 @@ def inspect_dataset(path: Path) -> dict[str, Any]:
             for report in reports
             for issue in report.get("issues", [])
         ]
-        return {
+        return _with_builder_support({
             "path": str(path), "format": "LeRobot collection", "format_family": "lerobot_collection",
             "compatible_loaders": ["lerobot", "gr00t_lerobot", "paligemma"],
             "dataset_count": len(reports),
@@ -132,36 +146,36 @@ def inspect_dataset(path: Path) -> dict[str, Any]:
             "parquet_count": sum(int(report.get("parquet_count", 0)) for report in reports),
             "issues": issues, "valid": all(report["valid"] for report in reports),
             "fingerprint": dataset_fingerprint(path), "size_bytes": directory_size(path),
-        }
+        })
 
     cosmos_stats = path / "success_only/dataset_statistics.json"
     cosmos_hdf5 = list(path.glob("**/*.hdf5")) + list(path.glob("**/*.h5"))
     if cosmos_stats.is_file() and cosmos_hdf5:
-        return {
+        return _with_builder_support({
             "path": str(path), "format": "Cosmos LIBERO", "format_family": "cosmos",
             "compatible_loaders": ["cosmos"], "episode_count": len(cosmos_hdf5),
             "parquet_count": 0, "issues": [], "valid": True,
             "fingerprint": dataset_fingerprint(path), "size_bytes": directory_size(path),
-        }
+        })
 
     annotations = sorted(path.glob("*.json")) + sorted(path.glob("*.jsonl"))
     image_dirs = [item for item in (path / "images", path / "image", path / "data") if item.is_dir()]
     if annotations and image_dirs:
         valid_annotations = any(_json_preview(item, 1) for item in annotations)
         issues = [] if valid_annotations else [{"level": "error", "code": "dataset_invalid_annotations", "message": "No valid JSON annotation records were found."}]
-        return {
+        return _with_builder_support({
             "path": str(path), "format": "VLM / LLaVA JSON", "format_family": "vlm_json",
             "compatible_loaders": ["vlm", "llava_json"], "episode_count": 0,
             "parquet_count": 0, "issues": issues, "valid": not issues,
             "fingerprint": dataset_fingerprint(path), "size_bytes": directory_size(path),
-        }
+        })
 
-    return {
+    return _with_builder_support({
         "path": str(path), "format": "unknown", "format_family": "unknown",
         "compatible_loaders": [], "episode_count": 0, "parquet_count": 0,
         "issues": [{"level": "error", "code": "dataset_format_unknown", "message": "The directory does not match a supported AlphaBrain dataset format."}],
         "valid": False, "fingerprint": dataset_fingerprint(path), "size_bytes": directory_size(path),
-    }
+    })
 
 
 def preview_dataset(path: Path, *, limit: int = 20) -> dict[str, Any]:

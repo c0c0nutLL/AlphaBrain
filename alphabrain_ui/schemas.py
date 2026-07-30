@@ -252,6 +252,7 @@ class TemplateCreate(APIModel):
     description: str = ""
     visibility: Literal["private", "shared"] = "private"
     spec: dict[str, Any]
+    allow_duplicate: bool = False
 
     _reject_credentials = field_validator("spec")(reject_inline_secrets)
 
@@ -261,6 +262,7 @@ class TemplateUpdate(APIModel):
     description: str | None = None
     visibility: Literal["private", "shared"] | None = None
     spec: dict[str, Any] | None = None
+    allow_duplicate: bool = False
 
     _reject_credentials = field_validator("spec")(lambda value: reject_inline_secrets(value) if value else value)
 
@@ -289,6 +291,10 @@ class DatasetValidationRequest(APIModel):
     path: str = Field(min_length=1, max_length=4096)
     dataset_id: str = Field(min_length=1, max_length=128)
     dataset_mix: str | None = Field(default=None, max_length=128)
+
+
+class DatasetInspectionRequest(APIModel):
+    path: str = Field(min_length=1, max_length=4096)
 
 
 class SecretTokenUpdate(APIModel):

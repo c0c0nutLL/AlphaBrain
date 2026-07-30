@@ -106,6 +106,8 @@ class ExperimentTemplate(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     visibility: Mapped[str] = mapped_column(String(16), default="private", index=True)
     spec: Mapped[dict] = mapped_column(JSON)
+    spec_fingerprint: Mapped[str] = mapped_column(String(64), default="", index=True)
+    fingerprint_version: Mapped[int] = mapped_column(Integer, default=1)
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)

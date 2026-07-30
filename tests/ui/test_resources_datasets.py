@@ -59,6 +59,22 @@ def make_lerobot_dataset(root: Path) -> Path:
     return dataset
 
 
+def make_cosmos_dataset(root: Path) -> Path:
+    dataset = root / "cosmos_libero"
+    success = dataset / "success_only"
+    success.mkdir(parents=True)
+    (success / "dataset_statistics.json").write_text("{}")
+    (success / "pick_demo.hdf5").write_bytes(b"HDF5")
+    return dataset
+
+
+def make_vlm_dataset(root: Path) -> Path:
+    dataset = root / "vlm_json"
+    (dataset / "images").mkdir(parents=True)
+    (dataset / "annotations.jsonl").write_text('{"id": 1, "image": "images/one.png"}\n')
+    return dataset
+
+
 def experiment_spec(*, registration_id: str | None = None, mixture_id: str | None = None) -> dict:
     dataset = {"id": "libero"}
     if registration_id:
@@ -199,6 +215,8 @@ def test_dataset_registration_preview_mixture_and_stats(tmp_path: Path) -> None:
         row = created.json()
         assert row["status"] == "ready"
         assert row["episode_count"] == 1
+        assert row["validation"]["format_family"] == "lerobot"
+        assert row["validation"]["builder_support"] == "direct"
         preview = client.get(f"/api/v1/datasets/{row['id']}/preview")
         assert preview.status_code == 200
         assert preview.json()["episodes"][0]["episode_index"] == 0
@@ -209,6 +227,8 @@ def test_dataset_registration_preview_mixture_and_stats(tmp_path: Path) -> None:
         })
         assert mixture.status_code == 200, mixture.text
         assert mixture.json()["mixture_spec"][0]["path"] == str(dataset)
+        assert mixture.json()["owner_name"] == "Admin"
+        assert mixture.json()["resolved_members"][0]["format_family"] == "lerobot"
 
         stats = client.post(f"/api/v1/datasets/{row['id']}/stats")
         assert stats.status_code == 200
@@ -229,6 +249,48 @@ def test_dataset_registration_preview_mixture_and_stats(tmp_path: Path) -> None:
         assert removed.status_code == 200
         assert removed.json()["data_deleted"] is False
         assert dataset.is_dir()
+
+
+def test_dataset_inspection_reports_supported_formats_and_enforces_roots(tmp_path: Path) -> None:
+    datasets_root = tmp_path / "datasets"
+    lerobot = make_lerobot_dataset(datasets_root / "single")
+    collection_root = datasets_root / "collection"
+    make_lerobot_dataset(collection_root)
+    cosmos = make_cosmos_dataset(datasets_root)
+    vlm = make_vlm_dataset(datasets_root)
+    unknown = datasets_root / "unknown"
+    unknown.mkdir(parents=True)
+    outside = make_lerobot_dataset(tmp_path / "outside")
+
+    with TestClient(make_app(tmp_path)) as client:
+        setup(client)
+        assert client.patch(
+            "/api/v1/settings", json={"dataset_roots": [str(datasets_root)]}
+        ).status_code == 200
+
+        cases = [
+            (lerobot, "lerobot", "direct", True),
+            (collection_root, "lerobot_collection", "mixture_only", False),
+            (cosmos, "cosmos", "inventory_only", False),
+            (vlm, "vlm_json", "inventory_only", False),
+        ]
+        for path, family, support, builder_ready in cases:
+            response = client.post("/api/v1/datasets/inspect", json={"path": str(path)})
+            assert response.status_code == 200, response.text
+            report = response.json()
+            assert report["valid"] is True
+            assert report["format_family"] == family
+            assert report["builder_support"] == support
+            assert report["builder_ready"] is builder_ready
+
+        unrecognized = client.post("/api/v1/datasets/inspect", json={"path": str(unknown)})
+        assert unrecognized.status_code == 200
+        assert unrecognized.json()["valid"] is False
+        assert unrecognized.json()["builder_support"] == "unsupported"
+
+        forbidden = client.post("/api/v1/datasets/inspect", json={"path": str(outside)})
+        assert forbidden.status_code == 403
+        assert forbidden.json()["detail"]["code"] == "dataset_path_outside_configured_roots"
 
 
 def test_experiment_resolves_registered_dataset_and_versioned_mixture(tmp_path: Path) -> None:

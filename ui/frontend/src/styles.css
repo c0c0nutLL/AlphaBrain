@@ -241,6 +241,20 @@ button, input, textarea, select { font: inherit; }
 
 .table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .table-search { max-width: 340px; }
+.template-filter-toolbar { display: grid; gap: 12px; margin-bottom: 18px; }
+.template-filter-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.template-filter-controls .ant-select { width: 100%; }
+.template-filter-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 28px; }
+.dataset-support-alert { margin-bottom: 16px; }
+.dataset-support-alert .ant-alert-description > .ant-space { width: 100%; }
+.dataset-tab-actions { display: flex; justify-content: flex-end; margin-bottom: 14px; }
+.dataset-filter-toolbar { display: grid; gap: 12px; margin-bottom: 18px; }
+.dataset-filter-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 10px; }
+.dataset-filter-controls .ant-select { width: 100%; }
+.dataset-filter-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 28px; }
+.dataset-inspection-result, .dataset-mixture-warning { margin-bottom: 18px; }
+.dataset-inspection-result .ant-alert-description { width: 100%; }
+.template-duplicate-list { max-height: 360px; overflow-y: auto; }
 .dataset-picker { width: 100%; }
 .dataset-validation { margin-top: 12px; }
 .dataset-validation-detail { margin: 0 !important; white-space: pre-line; }
@@ -533,6 +547,14 @@ textarea.ant-input.config-preview:focus {
   .job-summary { grid-template-columns: 1fr; }
   .table-toolbar { align-items: stretch; flex-direction: column; }
   .table-toolbar .ant-segmented { overflow-x: auto; }
+  .template-filter-toolbar .table-search { max-width: none; }
+  .template-filter-controls { grid-template-columns: 1fr; }
+  .template-filter-summary { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .dataset-filter-toolbar .table-search { max-width: none; }
+  .dataset-filter-controls { grid-template-columns: 1fr; }
+  .dataset-filter-summary { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .dataset-tab-actions { justify-content: stretch; }
+  .dataset-tab-actions .ant-btn { width: 100%; }
   .mode-picker { grid-template-columns: 1fr; }
   .settings-panel { padding-inline: 12px; }
   .settings-groups > .ant-collapse-item > .ant-collapse-header { padding-inline: 12px; }

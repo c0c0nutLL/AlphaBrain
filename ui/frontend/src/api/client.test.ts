@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, healthyGpus, isRecord, listFrom } from './client';
+import { ApiError, api, healthyGpus, isRecord, listFrom, templateDuplicateDetail } from './client';
 import type { DeploymentCreateRequest, EvaluationCreateRequest, ExperimentSpec, WandbRunConfig } from './types';
 
 function jsonResponse(value: unknown): Response {
@@ -20,6 +20,43 @@ describe('API response normalization', () => {
     expect(isRecord({ id: 'x' })).toBe(true);
     expect(isRecord([])).toBe(false);
     expect(isRecord(null)).toBe(false);
+  });
+
+  it('parses duplicate-template conflicts and sends an explicit override', async () => {
+    const detail = templateDuplicateDetail(new ApiError('duplicate_template', 409, {
+      code: 'duplicate_template',
+      matches: [{
+        id: 'template-1', name: 'Existing', owner_name: 'Alice', visibility: 'shared',
+        builtin: false, same_name: true, same_spec: false,
+      }],
+    }));
+    expect(detail).toEqual({
+      code: 'duplicate_template',
+      matches: [{
+        id: 'template-1', name: 'Existing', owner_id: undefined, owner_name: 'Alice',
+        visibility: 'shared', builtin: false, same_name: true, same_spec: false,
+      }],
+    });
+    expect(templateDuplicateDetail(new ApiError('conflict', 409, { code: 'other' }))).toBeUndefined();
+
+    const spec: ExperimentSpec = {
+      spec_version: 2,
+      name: 'Copy',
+      backbone_id: 'qwen',
+      action_head_id: 'mlp',
+      method_id: 'il',
+      dataset_id: 'libero',
+      parameters: {},
+      resources: { strategy: 'auto', gpu_count: 1 },
+    };
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({
+      id: 'template-2', name: 'Copy', visibility: 'private', spec: {},
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('document', { cookie: '' });
+    await api.templates.create({ name: 'Copy', visibility: 'personal', spec }, true);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({ allow_duplicate: true });
   });
 
   it('normalizes setup, user, and GPU backend fields', async () => {
@@ -70,6 +107,39 @@ describe('API response normalization', () => {
     });
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({ gpu_refresh_interval_seconds: 10 });
+  });
+
+  it('inspects a dataset path and normalizes its format support', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({
+      valid: true,
+      path: '/datasets/collection',
+      format: 'lerobot_collection',
+      format_family: 'lerobot_collection',
+      compatible_loaders: ['lerobot'],
+      builder_support: 'mixture_only',
+      builder_ready: false,
+      dataset_count: 3,
+      episode_count: 12,
+      step_count: 240,
+      parquet_count: 6,
+      size_bytes: 4096,
+      issues: [{ level: 'warning', code: 'collection_requires_pattern', message: 'Select child datasets with a pattern.' }],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('document', { cookie: '' });
+
+    await expect(api.datasets.inspect('/datasets/collection')).resolves.toMatchObject({
+      valid: true,
+      format_family: 'lerobot_collection',
+      builder_support: 'mixture_only',
+      builder_ready: false,
+      dataset_count: 3,
+      issues: [{ id: 'collection_requires_pattern', level: 'warning' }],
+    });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain('/datasets/inspect');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(String(init.body))).toEqual({ path: '/datasets/collection' });
   });
 
   it('normalizes the capability catalog and sends the experiment envelope', async () => {

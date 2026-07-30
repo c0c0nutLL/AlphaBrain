@@ -93,6 +93,7 @@ from .remote_metrics import RemoteMetricsCollector
 from .remote_training import RemoteTrainingConfig, validate_remote_training_config
 from .runtime import RuntimeConfig
 from .schemas import (
+    DatasetInspectionRequest,
     DatasetValidationRequest,
     DatasetMixtureCreate,
     DatasetMixtureUpdate,
@@ -130,6 +131,12 @@ from .schemas import (
     WandbSecretStatus,
 )
 from .services import AuthService, SettingsService, add_audit
+from .template_fingerprints import (
+    TEMPLATE_FINGERPRINT_VERSION,
+    canonical_template_json,
+    normalize_template_name,
+    template_spec_fingerprint,
+)
 from .resource_catalog import WORLD_MODEL_RESOURCES, install_command, preprocess_command, resource_catalog
 from .reference_results import (
     ReferenceResultsError,
@@ -372,11 +379,25 @@ def _serialize_mixture(mixture: DatasetMixture, registrations: dict[str, Dataset
                 "dataset_path": registration.path if registration else None,
                 "dataset_name": registration.name if registration else None,
                 "dataset_status": registration.status if registration else "missing",
+                "dataset_format": registration.format if registration else "unknown",
+                "format_family": (
+                    str((registration.validation or {}).get("format_family", "unknown"))
+                    if registration else "unknown"
+                ),
+                "builder_support": (
+                    str((registration.validation or {}).get("builder_support", "unsupported"))
+                    if registration else "unsupported"
+                ),
             }
         )
     return {
         "id": mixture.id,
         "owner_id": mixture.owner_id,
+        "owner_name": (
+            mixture.owner.display_name or mixture.owner.username
+            if getattr(mixture, "owner", None)
+            else ""
+        ),
         "name": mixture.name,
         "description": mixture.description,
         "visibility": mixture.visibility,
@@ -1949,6 +1970,22 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
             roots.append(path.resolve(strict=False))
         return roots or [(runtime.repo_root / "data").resolve(strict=False)]
 
+    def inspect_allowed_dataset_path(value: str, settings: SettingsService) -> tuple[Path, dict[str, Any]]:
+        try:
+            source = resolve_local_directory(value, base_dir=runtime.repo_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        roots = configured_dataset_roots(settings)
+        if not is_within_roots(source, roots):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "dataset_path_outside_configured_roots",
+                    "roots": [str(root) for root in roots],
+                },
+            )
+        return source, inspect_dataset(source)
+
     packages_root = (runtime.state_dir / "artifacts" / "packages").resolve(strict=False)
 
     def create_package_run(
@@ -2272,6 +2309,15 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         rows = db.execute(statement.order_by(DatasetRegistration.updated_at.desc())).scalars().all()
         return [_serialize_dataset(row) for row in rows]
 
+    @app.post("/api/v1/datasets/inspect")
+    def inspect_dataset_for_registration(
+        payload: DatasetInspectionRequest,
+        _user: User = Depends(current_user),
+        db: Session = Depends(get_db),
+    ) -> dict[str, Any]:
+        _source, report = inspect_allowed_dataset_path(payload.path, SettingsService(db))
+        return report
+
     @app.post("/api/v1/datasets")
     def register_dataset(
         payload: DatasetRegistrationCreate,
@@ -2279,14 +2325,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         db: Session = Depends(get_db),
     ) -> dict[str, Any]:
         settings = SettingsService(db)
-        try:
-            source = resolve_local_directory(payload.path, base_dir=runtime.repo_root)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        roots = configured_dataset_roots(settings)
-        if not is_within_roots(source, roots):
-            raise HTTPException(status_code=403, detail={"code": "dataset_path_outside_configured_roots", "roots": [str(root) for root in roots]})
-        report = inspect_dataset(source)
+        source, report = inspect_allowed_dataset_path(payload.path, settings)
         if not report["valid"]:
             raise HTTPException(status_code=422, detail={"code": "dataset_validation_failed", "report": report})
         registration = DatasetRegistration(
@@ -2337,7 +2376,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         user: User = Depends(current_user),
         db: Session = Depends(get_db),
     ) -> list[dict[str, Any]]:
-        statement = select(DatasetMixture)
+        statement = select(DatasetMixture).options(selectinload(DatasetMixture.owner))
         if user.role != "administrator":
             statement = statement.where((DatasetMixture.visibility == "shared") | (DatasetMixture.owner_id == user.id))
         rows = db.execute(statement.order_by(DatasetMixture.updated_at.desc())).scalars().all()
@@ -2485,9 +2524,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         add_audit(db, "dataset.unregister", actor_id=user.id, target_type="dataset", target_id=dataset_id, detail={"data_deleted": False})
         return {"ok": True, "data_deleted": False, "path": path, "storage_mode": storage_mode}
 
-    @app.get("/api/v1/templates")
-    def list_templates(user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[dict[str, Any]]:
-        settings = SettingsService(db)
+    def configured_builtin_templates(settings: SettingsService) -> list[dict[str, Any]]:
         pretrained_root = Path(str(
             os.environ.get("PRETRAINED_MODELS_DIR")
             or settings.get("pretrained_root", "")
@@ -2495,7 +2532,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         )).expanduser()
         if not pretrained_root.is_absolute():
             pretrained_root = runtime.repo_root / pretrained_root
-        presets = builtin_templates(
+        return builtin_templates(
             pretrained_root=pretrained_root,
             resource_paths=settings.get("resource_paths", {}),
             environment={
@@ -2503,6 +2540,123 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
                 **{str(key): str(value) for key, value in settings.get("environment", {}).items()},
             },
         )
+
+    def template_duplicate_matches(
+        *,
+        name: str,
+        spec: dict[str, Any],
+        user: User,
+        db: Session,
+        exclude_id: str | None = None,
+        candidate_owner_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        owner_id = candidate_owner_id or user.id
+        candidate_name = normalize_template_name(name)
+        candidate_json = canonical_template_json(spec)
+        candidate_fingerprint = template_spec_fingerprint(spec)
+        matches: list[dict[str, Any]] = []
+
+        rows = (
+            db.execute(
+                select(ExperimentTemplate).where(
+                    (ExperimentTemplate.visibility == "shared")
+                    | (ExperimentTemplate.owner_id == user.id)
+                    | (ExperimentTemplate.owner_id == owner_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for row in rows:
+            if row.id == exclude_id:
+                continue
+            if (
+                row.fingerprint_version != TEMPLATE_FINGERPRINT_VERSION
+                or not row.spec_fingerprint
+            ):
+                row.spec_fingerprint = template_spec_fingerprint(row.spec)
+                row.fingerprint_version = TEMPLATE_FINGERPRINT_VERSION
+            same_spec = bool(
+                row.spec_fingerprint == candidate_fingerprint
+                and canonical_template_json(row.spec) == candidate_json
+            )
+            same_name = bool(
+                row.owner_id == owner_id
+                and normalize_template_name(row.name) == candidate_name
+            )
+            if not same_spec and not same_name:
+                continue
+            matches.append(
+                {
+                    "id": row.id,
+                    "name": row.name,
+                    "owner_id": row.owner_id,
+                    "owner_name": row.owner.display_name or row.owner.username,
+                    "visibility": "shared" if row.visibility == "shared" else "personal",
+                    "builtin": False,
+                    "same_name": same_name,
+                    "same_spec": same_spec,
+                }
+            )
+
+        for preset in configured_builtin_templates(SettingsService(db)):
+            same_spec = bool(
+                template_spec_fingerprint(preset["spec"]) == candidate_fingerprint
+                and canonical_template_json(preset["spec"]) == candidate_json
+            )
+            if not same_spec:
+                continue
+            matches.append(
+                {
+                    "id": preset["id"],
+                    "name": preset["name"],
+                    "owner_id": None,
+                    "owner_name": preset.get("owner_name", "AlphaBrain"),
+                    "visibility": "shared",
+                    "builtin": True,
+                    "same_name": False,
+                    "same_spec": True,
+                }
+            )
+        matches.sort(
+            key=lambda item: (
+                not (item["same_name"] and item["same_spec"]),
+                not item["same_spec"],
+                not item["same_name"],
+                item["name"].casefold(),
+            )
+        )
+        return matches
+
+    def reject_unconfirmed_template_duplicate(
+        *,
+        name: str,
+        spec: dict[str, Any],
+        allow_duplicate: bool,
+        user: User,
+        db: Session,
+        exclude_id: str | None = None,
+        candidate_owner_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        matches = template_duplicate_matches(
+            name=name,
+            spec=spec,
+            user=user,
+            db=db,
+            exclude_id=exclude_id,
+            candidate_owner_id=candidate_owner_id,
+        )
+        if matches and not allow_duplicate:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "duplicate_template", "matches": matches},
+            )
+        return matches
+
+    @app.get("/api/v1/templates")
+    def list_templates(user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+        settings = SettingsService(db)
+        presets = configured_builtin_templates(settings)
         rows = (
             db.execute(
                 select(ExperimentTemplate)
@@ -2520,10 +2674,33 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         user: User = Depends(current_user),
         db: Session = Depends(get_db),
     ) -> dict[str, Any]:
-        row = ExperimentTemplate(owner_id=user.id, **payload.model_dump())
+        values = payload.model_dump(exclude={"allow_duplicate"})
+        matches = reject_unconfirmed_template_duplicate(
+            name=payload.name,
+            spec=payload.spec,
+            allow_duplicate=payload.allow_duplicate,
+            user=user,
+            db=db,
+        )
+        row = ExperimentTemplate(
+            owner_id=user.id,
+            **values,
+            spec_fingerprint=template_spec_fingerprint(payload.spec),
+            fingerprint_version=TEMPLATE_FINGERPRINT_VERSION,
+        )
         db.add(row)
         db.flush()
-        add_audit(db, "template.create", actor_id=user.id, target_type="template", target_id=row.id)
+        add_audit(
+            db,
+            "template.create",
+            actor_id=user.id,
+            target_type="template",
+            target_id=row.id,
+            detail={
+                "duplicate_override": bool(payload.allow_duplicate and matches),
+                "duplicate_match_ids": [item["id"] for item in matches],
+            },
+        )
         return _serialize_template(row)
 
     @app.get("/api/v1/templates/{template_id}")
@@ -2534,21 +2711,7 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         if is_builtin_template_id(template_id):
             settings = SettingsService(db)
-            pretrained_root = Path(str(
-                os.environ.get("PRETRAINED_MODELS_DIR")
-                or settings.get("pretrained_root", "")
-                or "data/pretrained_models"
-            )).expanduser()
-            if not pretrained_root.is_absolute():
-                pretrained_root = runtime.repo_root / pretrained_root
-            presets = builtin_templates(
-                pretrained_root=pretrained_root,
-                resource_paths=settings.get("resource_paths", {}),
-                environment={
-                    **os.environ,
-                    **{str(key): str(value) for key, value in settings.get("environment", {}).items()},
-                },
-            )
+            presets = configured_builtin_templates(settings)
             preset = next((item for item in presets if item["id"] == template_id), None)
             if preset is None:
                 raise HTTPException(status_code=404, detail="template_not_found")
@@ -2571,10 +2734,43 @@ def create_app(config: RuntimeConfig | None = None) -> FastAPI:
         if row is None:
             raise HTTPException(status_code=404, detail="template_not_found")
         assert_owner_or_admin(user, row.owner_id)
-        for key, value in payload.model_dump(exclude_none=True).items():
+        values = payload.model_dump(exclude_none=True, exclude={"allow_duplicate"})
+        candidate_name = str(values.get("name", row.name))
+        candidate_spec = values.get("spec", row.spec)
+        identity_changed = bool(
+            normalize_template_name(candidate_name) != normalize_template_name(row.name)
+            or canonical_template_json(candidate_spec) != canonical_template_json(row.spec)
+        )
+        matches = (
+            reject_unconfirmed_template_duplicate(
+                name=candidate_name,
+                spec=candidate_spec,
+                allow_duplicate=payload.allow_duplicate,
+                user=user,
+                db=db,
+                exclude_id=row.id,
+                candidate_owner_id=row.owner_id,
+            )
+            if identity_changed
+            else []
+        )
+        for key, value in values.items():
             setattr(row, key, value)
+        if "spec" in values:
+            row.spec_fingerprint = template_spec_fingerprint(candidate_spec)
+            row.fingerprint_version = TEMPLATE_FINGERPRINT_VERSION
         row.version += 1
-        add_audit(db, "template.update", actor_id=user.id, target_type="template", target_id=row.id)
+        add_audit(
+            db,
+            "template.update",
+            actor_id=user.id,
+            target_type="template",
+            target_id=row.id,
+            detail={
+                "duplicate_override": bool(payload.allow_duplicate and matches),
+                "duplicate_match_ids": [item["id"] for item in matches],
+            },
+        )
         return _serialize_template(row)
 
     @app.delete("/api/v1/templates/{template_id}")

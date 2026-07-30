@@ -42,7 +42,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import YAML from 'yaml';
-import { api, healthyGpus } from '../api/client';
+import { api, healthyGpus, templateDuplicateDetail } from '../api/client';
 import type {
   Capability,
   CapabilityKind,
@@ -52,6 +52,8 @@ import type {
   PreflightItem,
   PreflightResult,
   ResolveResult,
+  TemplateDuplicateDetail,
+  TemplateDuplicateMatch,
   WandbCategoryCapability,
   WandbRunConfig,
   WandbUploadCategory,
@@ -62,6 +64,7 @@ import { AsyncState } from '../components/AsyncState';
 import { DatasetDirectoryPicker } from '../components/DatasetDirectoryPicker';
 import { PageIntro } from '../components/PageIntro';
 import { TrainingWorkflowFields } from '../components/TrainingWorkflowFields';
+import { TemplateDuplicateModal } from '../components/TemplateDuplicateModal';
 import { useGpuRefreshInterval } from '../hooks/useGpuRefreshInterval';
 import { builderGpuIds, capabilityMatches, defaultWandbRunConfig, filterSupportedWandbCategories, isBuilderStepComplete, normalizeBuilderResources, workflowFieldActive } from './builder-validation';
 
@@ -178,6 +181,10 @@ export function ExperimentBuilderPage() {
   const [resolved, setResolved] = useState<ResolveResult>();
   const [preflight, setPreflight] = useState<PreflightResult>();
   const [datasetValidation, setDatasetValidation] = useState<DatasetValidationResult>();
+  const [pendingTemplateDuplicate, setPendingTemplateDuplicate] = useState<{
+    detail: TemplateDuplicateDetail;
+    spec: ExperimentSpec;
+  }>();
 
   const me = useQuery({ queryKey: ['me'], queryFn: api.auth.me });
   const includeExperimental = Boolean(me.data?.experimental_enabled);
@@ -457,13 +464,36 @@ export function ExperimentBuilderPage() {
     onError: (error) => message.error(error instanceof Error ? error.message : String(error)),
   });
   const saveTemplateMutation = useMutation({
-    mutationFn: async () => {
-      const spec = await buildSpec();
-      return api.templates.create({ name: spec.name, description: spec.description, visibility: 'personal', spec });
+    mutationFn: async ({ spec, allowDuplicate }: { spec: ExperimentSpec; allowDuplicate: boolean }) => {
+      return api.templates.create(
+        { name: spec.name, description: spec.description, visibility: 'personal', spec },
+        allowDuplicate,
+      );
     },
-    onSuccess: () => message.success(t('builder.templateSaved')),
-    onError: (error) => message.error(error instanceof Error ? error.message : String(error)),
+    onSuccess: () => {
+      setPendingTemplateDuplicate(undefined);
+      message.success(t('builder.templateSaved'));
+    },
+    onError: (error, variables) => {
+      const detail = templateDuplicateDetail(error);
+      if (detail) setPendingTemplateDuplicate({ detail, spec: variables.spec });
+      else message.error(error instanceof Error ? error.message : String(error));
+    },
   });
+
+  const saveTemplate = async () => {
+    try {
+      const spec = await buildSpec();
+      saveTemplateMutation.mutate({ spec, allowDuplicate: false });
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const openDuplicateTemplate = (match: TemplateDuplicateMatch) => {
+    setPendingTemplateDuplicate(undefined);
+    navigate(`/experiments/new?template=${encodeURIComponent(match.id)}`);
+  };
 
   const validateAndAdvance = async () => {
     try {
@@ -1111,10 +1141,17 @@ export function ExperimentBuilderPage() {
                 {t('builder.submit')}
               </Button>
             )}
-            {step === 3 ? <Button icon={<SaveOutlined />} loading={saveTemplateMutation.isPending} onClick={() => saveTemplateMutation.mutate()}>{t('templates.create')}</Button> : null}
+            {step === 3 ? <Button icon={<SaveOutlined />} loading={saveTemplateMutation.isPending} onClick={() => void saveTemplate()}>{t('templates.create')}</Button> : null}
           </Space>
         </div>
       </Card>
+      <TemplateDuplicateModal
+        detail={pendingTemplateDuplicate?.detail}
+        saving={saveTemplateMutation.isPending}
+        onCancel={() => setPendingTemplateDuplicate(undefined)}
+        onOpenExisting={openDuplicateTemplate}
+        onSaveAnyway={() => pendingTemplateDuplicate && saveTemplateMutation.mutate({ spec: pendingTemplateDuplicate.spec, allowDuplicate: true })}
+      />
     </div>
   );
 }

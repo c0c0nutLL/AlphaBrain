@@ -95,6 +95,144 @@ def test_personal_setup_templates_and_preferences(tmp_path: Path) -> None:
         assert manual.json()["gpu_refresh_interval_seconds"] == 0
 
 
+def test_template_duplicate_detection_override_update_and_audit(tmp_path: Path) -> None:
+    with TestClient(make_app(tmp_path)) as client:
+        client.post(
+            "/api/v1/setup",
+            json={"mode": "personal", "username": "admin", "display_name": "Admin", "password": ""},
+        )
+        spec = {
+            "architecture": {"backbone": "pi0_5", "action_head": "flow_matching"},
+            "training": {"method": "sft", "checkpoint": "/models/pi05"},
+            "dataset": {"id": "libero"},
+            "parameters": {"run_id": "run-one", "learning_rate": 0.0001},
+            "resources": {"allocation": "fixed", "num_gpus": 1, "gpu_ids": [0]},
+            "metadata": {"description": "first"},
+        }
+        first = client.post(
+            "/api/v1/templates",
+            json={"name": "PI05 baseline", "visibility": "private", "spec": spec},
+        )
+        assert first.status_code == 200
+        first_id = first.json()["id"]
+
+        same_spec = {
+            **spec,
+            "parameters": {**spec["parameters"], "run_id": "run-two"},
+            "resources": {**spec["resources"], "gpu_ids": [3]},
+            "metadata": {"description": "second"},
+        }
+        duplicate = client.post(
+            "/api/v1/templates",
+            json={"name": "Another name", "visibility": "private", "spec": same_spec},
+        )
+        assert duplicate.status_code == 409
+        detail = duplicate.json()["detail"]
+        assert detail["code"] == "duplicate_template"
+        assert detail["matches"] == [
+            {
+                "id": first_id,
+                "name": "PI05 baseline",
+                "owner_id": first.json()["owner_id"],
+                "owner_name": "Admin",
+                "visibility": "personal",
+                "builtin": False,
+                "same_name": False,
+                "same_spec": True,
+            }
+        ]
+
+        same_name = client.post(
+            "/api/v1/templates",
+            json={"name": "  ｐｉ０５ BASELINE ", "visibility": "private", "spec": {"dataset": {"id": "bridge"}}},
+        )
+        assert same_name.status_code == 409
+        assert same_name.json()["detail"]["matches"][0]["same_name"] is True
+
+        # Self is excluded when the identity changes and no other match exists.
+        assert client.patch(
+            f"/api/v1/templates/{first_id}",
+            json={"name": "PI05 renamed", "spec": spec},
+        ).status_code == 200
+
+        override = client.post(
+            "/api/v1/templates",
+            json={
+                "name": "Another name",
+                "visibility": "private",
+                "spec": same_spec,
+                "allow_duplicate": True,
+            },
+        )
+        assert override.status_code == 200
+
+        # Presentation-only edits do not re-trigger an already acknowledged duplicate.
+        assert client.patch(
+            f"/api/v1/templates/{first_id}",
+            json={"description": "Documentation only", "visibility": "shared"},
+        ).status_code == 200
+
+        audit = client.get("/api/v1/audit").json()
+        override_event = next(row for row in audit if row["target_id"] == override.json()["id"])
+        assert override_event["action"] == "template.create"
+        assert override_event["detail"] == {
+            "duplicate_override": True,
+            "duplicate_match_ids": [first_id],
+        }
+
+
+def test_template_duplicate_visibility_and_builtin_matching(tmp_path: Path) -> None:
+    with TestClient(make_app(tmp_path)) as client:
+        client.post(
+            "/api/v1/setup",
+            json={"mode": "lab", "username": "admin", "display_name": "Admin", "password": "password123"},
+        )
+        client.headers["X-CSRF-Token"] = client.cookies["alphabrain_csrf"]
+        shared = client.post(
+            "/api/v1/templates",
+            json={"name": "Admin shared", "visibility": "shared", "spec": {"dataset": {"id": "shared-data"}}},
+        )
+        private = client.post(
+            "/api/v1/templates",
+            json={"name": "Admin private", "visibility": "private", "spec": {"dataset": {"id": "private-data"}}},
+        )
+        assert shared.status_code == private.status_code == 200
+        assert client.post(
+            "/api/v1/users",
+            json={"username": "alice", "display_name": "Alice", "password": "password123", "role": "researcher"},
+        ).status_code == 200
+        assert client.post("/api/v1/auth/logout").status_code == 200
+
+        client.headers.pop("X-CSRF-Token")
+        login = client.post("/api/v1/auth/login", json={"username": "alice", "password": "password123"})
+        client.headers["X-CSRF-Token"] = login.json()["csrf_token"]
+
+        shared_match = client.post(
+            "/api/v1/templates",
+            json={"name": "Alice shared copy", "visibility": "private", "spec": {"dataset": {"id": "shared-data"}}},
+        )
+        assert shared_match.status_code == 409
+        assert [item["id"] for item in shared_match.json()["detail"]["matches"]] == [shared.json()["id"]]
+
+        # Another owner's private template neither blocks the save nor appears in the response.
+        private_copy = client.post(
+            "/api/v1/templates",
+            json={"name": "Alice private copy", "visibility": "private", "spec": {"dataset": {"id": "private-data"}}},
+        )
+        assert private_copy.status_code == 200
+
+        builtin = next(item for item in client.get("/api/v1/templates").json() if item.get("builtin"))
+        builtin_match = client.post(
+            "/api/v1/templates",
+            json={"name": "Builtin copy", "visibility": "private", "spec": builtin["spec"]},
+        )
+        assert builtin_match.status_code == 409
+        assert any(
+            item["id"] == builtin["id"] and item["builtin"] and item["same_spec"]
+            for item in builtin_match.json()["detail"]["matches"]
+        )
+
+
 def _make_lerobot_v2_dataset(root: Path) -> Path:
     dataset = root / "libero_goal_no_noops_1.0.0_lerobot"
     meta = dataset / "meta"

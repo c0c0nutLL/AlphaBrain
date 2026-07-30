@@ -253,6 +253,7 @@ export interface Template {
   owner_name?: string;
   architecture?: string;
   method?: string;
+  dataset?: string;
   version?: number;
   updated_at?: string;
   spec?: ExperimentSpec;
@@ -264,6 +265,22 @@ export interface Template {
   availability?: 'ready' | 'partial' | 'missing';
   requirements?: Array<{ id: string; path?: string; ready: boolean }>;
   recommended_gpu_count?: number;
+}
+
+export interface TemplateDuplicateMatch {
+  id: string;
+  name: string;
+  owner_id?: string;
+  owner_name?: string;
+  visibility: 'personal' | 'shared';
+  builtin: boolean;
+  same_name: boolean;
+  same_spec: boolean;
+}
+
+export interface TemplateDuplicateDetail {
+  code: 'duplicate_template';
+  matches: TemplateDuplicateMatch[];
 }
 
 export type CapabilityKind = 'backbone' | 'action_head' | 'method' | 'dataset';
@@ -1004,6 +1021,24 @@ export interface DatasetRegistration {
   updated_at?: string;
 }
 
+export type DatasetBuilderSupport = 'direct' | 'mixture_only' | 'inventory_only' | 'unsupported';
+
+export interface DatasetInspectionResult {
+  valid: boolean;
+  path: string;
+  format: string;
+  format_family: string;
+  compatible_loaders: string[];
+  builder_support: DatasetBuilderSupport;
+  builder_ready: boolean;
+  dataset_count: number;
+  episode_count: number;
+  step_count: number;
+  parquet_count: number;
+  size_bytes: number;
+  issues: PreflightItem[];
+}
+
 export interface DatasetMixtureMember {
   registration_id: string;
   pattern?: string;
@@ -1013,11 +1048,15 @@ export interface DatasetMixtureMember {
   dataset_path?: string;
   dataset_name?: string;
   dataset_status?: string;
+  dataset_format?: string;
+  format_family?: string;
+  builder_support?: DatasetBuilderSupport;
 }
 
 export interface DatasetMixture {
   id: string;
   owner_id: string;
+  owner_name?: string;
   name: string;
   description?: string;
   visibility: 'private' | 'shared';

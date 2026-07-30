@@ -8,6 +8,7 @@ import type {
   DashboardData,
   DatasetValidationResult,
   DatasetMixture,
+  DatasetInspectionResult,
   DatasetPreview,
   DatasetRegistration,
   DeploymentAdapter,
@@ -62,6 +63,8 @@ import type {
   SystemSettings,
   Template,
   TrainingTarget,
+  TemplateDuplicateDetail,
+  TemplateDuplicateMatch,
   User,
   UtilityRun,
   WandbCategoryCapability,
@@ -402,6 +405,7 @@ function normalizeTemplate(value: unknown): Template {
     owner_name: stringValue(row.owner_name) || undefined,
     architecture: spec.backbone_id,
     method: spec.method_id,
+    dataset: spec.dataset_id,
     version: numberValue(row.version, 1),
     updated_at: stringValue(row.updated_at) || undefined,
     spec: { ...spec, name: spec.name || stringValue(row.name), description: stringValue(row.description) || undefined },
@@ -414,6 +418,25 @@ function normalizeTemplate(value: unknown): Template {
     requirements: recordArray(row.requirements).map((item) => ({ id: stringValue(item.id), path: stringValue(item.path) || undefined, ready: Boolean(item.ready) })),
     recommended_gpu_count: typeof row.recommended_gpu_count === 'number' ? row.recommended_gpu_count : undefined,
   };
+}
+
+export function templateDuplicateDetail(error: unknown): TemplateDuplicateDetail | undefined {
+  if (!(error instanceof ApiError) || error.status !== 409 || !isRecord(error.detail)) return undefined;
+  if (error.detail.code !== 'duplicate_template' || !Array.isArray(error.detail.matches)) return undefined;
+  const matches = error.detail.matches.flatMap((value): TemplateDuplicateMatch[] => {
+    if (!isRecord(value) || !stringValue(value.id) || !stringValue(value.name)) return [];
+    return [{
+      id: stringValue(value.id),
+      name: stringValue(value.name),
+      owner_id: stringValue(value.owner_id) || undefined,
+      owner_name: stringValue(value.owner_name) || undefined,
+      visibility: value.visibility === 'shared' ? 'shared' : 'personal',
+      builtin: Boolean(value.builtin),
+      same_name: Boolean(value.same_name),
+      same_spec: Boolean(value.same_spec),
+    }];
+  });
+  return matches.length ? { code: 'duplicate_template', matches } : undefined;
 }
 
 function normalizeCheckpoint(value: unknown): Checkpoint {
@@ -1659,6 +1682,30 @@ export const api = {
         issues: normalizeIssues(raw.issues),
       };
     },
+    inspect: async (path: string): Promise<DatasetInspectionResult> => {
+      const raw = await request<Record<string, unknown>>('/datasets/inspect', {
+        method: 'POST',
+        body: body({ path }),
+      });
+      const support = stringValue(raw.builder_support);
+      return {
+        valid: Boolean(raw.valid),
+        path: stringValue(raw.path),
+        format: stringValue(raw.format, 'unknown'),
+        format_family: stringValue(raw.format_family, 'unknown'),
+        compatible_loaders: Array.isArray(raw.compatible_loaders) ? raw.compatible_loaders.map(String) : [],
+        builder_support: ['direct', 'mixture_only', 'inventory_only'].includes(support)
+          ? support as DatasetInspectionResult['builder_support']
+          : 'unsupported',
+        builder_ready: Boolean(raw.builder_ready),
+        dataset_count: numberValue(raw.dataset_count, 1),
+        episode_count: numberValue(raw.episode_count),
+        step_count: numberValue(raw.step_count),
+        parquet_count: numberValue(raw.parquet_count),
+        size_bytes: numberValue(raw.size_bytes),
+        issues: normalizeIssues(raw.issues),
+      };
+    },
     list: (): Promise<DatasetRegistration[]> => request<DatasetRegistration[]>('/datasets'),
     get: (id: string): Promise<DatasetRegistration> => request<DatasetRegistration>(`/datasets/${encodeURIComponent(id)}`),
     register: (payload: {
@@ -1707,7 +1754,7 @@ export const api = {
       if (!found) throw new ApiError('template_not_found', 404);
       return found;
     },
-    create: async (payload: Partial<Template>): Promise<Template> => {
+    create: async (payload: Partial<Template>, allowDuplicate = false): Promise<Template> => {
       const spec = payload.spec;
       if (!spec) throw new ApiError('template_spec_required', 422);
       const raw = await request<unknown>('/templates', {
@@ -1717,16 +1764,18 @@ export const api = {
           description: payload.description ?? '',
           visibility: payload.visibility === 'shared' ? 'shared' : 'private',
           spec: toBackendSpec(spec),
+          ...(allowDuplicate ? { allow_duplicate: true } : {}),
         }),
       });
       return normalizeTemplate(raw);
     },
-    update: async (id: string, payload: Partial<Template>): Promise<Template> => {
+    update: async (id: string, payload: Partial<Template>, allowDuplicate = false): Promise<Template> => {
       const update: Record<string, unknown> = {};
       if (payload.name != null) update.name = payload.name;
       if (payload.description != null) update.description = payload.description;
       if (payload.visibility != null) update.visibility = payload.visibility === 'shared' ? 'shared' : 'private';
       if (payload.spec) update.spec = toBackendSpec(payload.spec);
+      if (allowDuplicate) update.allow_duplicate = true;
       return normalizeTemplate(await request<unknown>(`/templates/${encodeURIComponent(id)}`, { method: 'PATCH', body: body(update) }));
     },
     remove: (id: string) => request<void>(`/templates/${encodeURIComponent(id)}`, { method: 'DELETE' }),
