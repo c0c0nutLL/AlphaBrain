@@ -245,8 +245,17 @@ dev_notes
 # zhanghe
 experiments
 logs
-.claude
+# Keep personal Claude settings and unrelated local Skills ignored while
+# versioning the generated AlphaBrain Skill mirror.
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/alphabrain-*/
+!.claude/skills/alphabrain-*/**
 .codex
+
+# Repository-scoped instructions are part of the AlphaBrain agent interface.
+!AGENTS.md
 
 
 
